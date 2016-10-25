@@ -34,7 +34,7 @@ Usage
 ---
 
 ```php
-use Jasny\Middleware\ErrorHandler;
+use Jasny\ErrorHandler;
 use Monolog\Logger;
 use Monolog\Handler\StreamHandler;
 
@@ -74,7 +74,7 @@ use Jasny\Router\Routes;
 use Jasny\HttpMessage\ServerRequest;
 use Jasny\HttpMessage\Response;
 
-$routes = new Routes\Glob(['/**' => ['controller' => '$1', 'action' => '$2', 'id' => '$3']);
+$routes = new Routes\Glob(['/**' => ['controller' => '$1', 'id' => '$2']);
 $router = new Router($routes);
 
 $router->add($errorHandler);

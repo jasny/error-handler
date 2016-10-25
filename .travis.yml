@@ -16,5 +16,4 @@ script:
   - vendor/bin/phpunit --coverage-clover cache/logs/clover.xml
 
 after_success:
-  - php "$HOME/ocular.phar" code-coverage:upload --format=php-clover cache/logs/clover.xml
-
+  - test ${TRAVIS_PHP_VERSION:0:3} != "7.0" || php "$HOME/ocular.phar" code-coverage:upload --format=php-clover cache/logs/clover.xml

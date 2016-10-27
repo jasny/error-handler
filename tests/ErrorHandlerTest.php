@@ -8,12 +8,24 @@ use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\StreamInterface;
 use Psr\Log\LoggerInterface;
 use Psr\Log\LogLevel;
+use PHPUnit_Framework_MockObject_Matcher_InvokedCount as InvokedCount;
 
 /**
  * @covers Jasny\ErrorHandler
  */
 class ErrorHandlerTest extends \PHPUnit_Framework_TestCase
 {
+    protected function assertPrivatePropertyNotNull($property, $actual)
+    {
+        $refl = new \ReflectionProperty(ErrorHandler::class, $property);
+        $refl->setAccessible(true);
+        
+        $value = $refl->getValue($actual);
+        
+        $this->assertNotNull($value);
+    }
+    
+    
     /**
      * Test invoke with invalid 'next' param
      * 
@@ -238,5 +250,98 @@ class ErrorHandlerTest extends \PHPUnit_Framework_TestCase
         $errorHandler->setLogger($logger);
 
         $errorHandler->log(new \stdClass());
+    }
+    
+    
+    public function alsoLogProvider()
+    {
+        return [
+            [E_ALL, $this->once(), $this->once()],
+            [E_WARNING | E_USER_WARNING, $this->once(), $this->never()],
+            [E_NOTICE | E_USER_NOTICE, $this->once(), $this->never()],
+            [E_STRICT, $this->once(), $this->never()],
+            [E_DEPRECATED | E_USER_DEPRECATED, $this->once(), $this->never()],
+            [E_PARSE, $this->never(), $this->once()],
+            [E_ERROR, $this->never(), $this->once()],
+            [E_ERROR | E_USER_ERROR, $this->never(), $this->once()],
+            [E_RECOVERABLE_ERROR | E_USER_ERROR, $this->never(), $this->never()]
+        ];
+    }
+    
+    /**
+     * @dataProvider alsoLogProvider
+     * 
+     * @param int          $code
+     * @param InvokedCount $expectErrorHandler
+     * @param InvokedCount $expectShutdownFunction
+     */
+    public function testAlsoLog($code, InvokedCount $expectErrorHandler, InvokedCount $expectShutdownFunction)
+    {
+        $errorHandler = $this->getMockBuilder(ErrorHandler::class)
+            ->setMethods(['setErrorHandler', 'registerShutdownFunction'])
+            ->getMock();
+        
+        $errorHandler->expects($expectErrorHandler)->method('setErrorHandler')
+            ->with([$errorHandler, 'errorHandler'])
+            ->willReturn(null);
+        
+        $errorHandler->expects($expectShutdownFunction)->method('registerShutdownFunction')
+            ->with([$errorHandler, 'shutdownFunction']);
+        
+        $errorHandler->alsoLog($code);
+        
+        $this->assertSame($code, $errorHandler->getLoggedErrorTypes());
+    }
+    
+    public function testAlsoLogCombine()
+    {
+        $errorHandler = $this->getMockBuilder(ErrorHandler::class)
+            ->setMethods(['setErrorHandler', 'registerShutdownFunction'])
+            ->getMock();
+        
+        $errorHandler->alsoLog(E_NOTICE | E_USER_NOTICE);
+        $errorHandler->alsoLog(E_WARNING | E_USER_WARNING);
+        $errorHandler->alsoLog(E_ERROR);
+        $errorHandler->alsoLog(E_PARSE);
+        
+        $expected = E_NOTICE | E_USER_NOTICE | E_WARNING | E_USER_WARNING | E_ERROR | E_PARSE;
+        $this->assertSame($expected, $errorHandler->getLoggedErrorTypes());
+    }
+
+    public function testInitErrorHandler()
+    {
+        $errorHandler = $this->getMockBuilder(ErrorHandler::class)
+            ->setMethods(['setErrorHandler', 'registerShutdownFunction'])
+            ->getMock();
+        
+        $callback = function() {};
+        
+        $errorHandler->expects($this->once())->method('setErrorHandler')
+            ->with([$errorHandler, 'errorHandler'])
+            ->willReturn($callback);
+        
+        $errorHandler->alsoLog(E_WARNING);
+        
+        // Subsequent calls should have no effect
+        $errorHandler->alsoLog(E_WARNING);
+        
+        $this->assertSame($callback, $errorHandler->getChainedErrorHandler());
+    }
+    
+    public function testInitShutdownFunction()
+    {
+        $errorHandler = $this->getMockBuilder(ErrorHandler::class)
+            ->setMethods(['setErrorHandler', 'registerShutdownFunction'])
+            ->getMock();
+
+        $errorHandler->expects($this->once())->method('registerShutdownFunction')
+            ->with([$errorHandler, 'shutdownFunction']);
+        
+        $errorHandler->alsoLog(E_PARSE);
+        
+        // Subsequent calls should have no effect
+        $errorHandler->alsoLog(E_PARSE);
+        
+        $this->assertPrivatePropertyNotNull('reservedMemory', $errorHandler);
     }
 }

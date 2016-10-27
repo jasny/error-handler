@@ -38,7 +38,7 @@ use Jasny\ErrorHandler;
 use Monolog\Logger;
 use Monolog\Handler\StreamHandler;
 
-$log = new Logger();
+$log = new Logger('test');
 $log->pushHandler(new StreamHandler('path/to/your.log'));
 
 $errorHandler = new ErrorHandler();
@@ -98,3 +98,48 @@ errors.
 To add support for PHP5, you should call `converErrorsToExceptions()`. This method will convert an error to an
 [ErrorException](http://php.net/manual/en/class.errorexception.php).
 
+## Handling fatal errors
+
+Some errors, like syntax errors, are not thrown and can't be handled be a user defined error handler. The PHP script
+will always exit right away when such an error occurs.
+
+By [registering a shutdown function](http://php.net/manual/en/function.register-shutdown-function.php) we can act upon
+these errors. Using `alsoLog(E_ERROR | E_PARSE)` will cause these errors to be logged. With the `onFatalError()` method
+you take additional action, like output an error message.
+
+```php
+ob_start();
+
+$errorHandler->onFatalError(function() {
+    http_response_code(500);
+    header('Content-Type: text/html');
+    echo "<h1>An unexpected error occured</h1><p>The error has been logged.</p>";
+}, true);
+```
+
+Use `true` as second argument clears the output buffer before calling your function.
+
+## Combine with other error handlers
+
+Using the error logger might lose backtrace information that other error handlers can pick up. Jasny Error Handler
+will always call the previous error handler, including the PHP internal error handler for non-thrown errors.
+
+When using [Rollbar](https://rollbar.com/) you could use the Rollbar handler for Monolog, however instead you'll get a
+better error report if you use Rollbar's own error handler:
+
+```php
+use Jasny\ErrorHandler;
+use Monolog\Logger;
+use Monolog\Handler\StreamHandler;
+
+// Rollbar error handler will log uncaught errors
+Rollbar::init(array('access_token' => 'POST_SERVER_ITEM_ACCESS_TOKEN'));
+
+$log = new Logger('test');
+$log->pushHandler(new RollbarHandler(Rollbar::$instance));
+
+$errorHandler = new ErrorHandler();
+
+// Jasny error handler will only log caught errors
+$errorHandler->setLogger($log);
+```

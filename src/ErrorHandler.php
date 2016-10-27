@@ -25,6 +25,34 @@ class ErrorHandler implements LoggerAwareInterface
      */
     protected $error;
     
+    /**
+     * @var callable|false
+     */
+    protected $chainedErrorHandler;
+
+    /**
+     * @var boolean
+     */
+    protected $registeredShutdown = false;
+    
+    /**
+     * Convert fatal errors to exceptions
+     * @var boolean
+     */
+    protected $convertFatalErrors = false;
+    
+    /**
+     * Log the following error types (in addition to caugth errors)
+     * @var int
+     */
+    protected $logErrorTypes = 0;
+    
+    /**
+     * A string which reserves memory that can be used to log the error in case of an out of memory fatal error
+     * @var string
+     */
+    protected $reservedMemory;
+    
     
     /**
      * Set the logger for logging errors
@@ -121,6 +149,26 @@ class ErrorHandler implements LoggerAwareInterface
         return $this->error;
     }
     
+    /**
+     * Get the error handler that has been replaced.
+     * 
+     * @return callable|false|null
+     */
+    public function getChainedErrorHandler()
+    {
+        return $this->chainedErrorHandler;
+    }
+    
+    /**
+     * Get the types of errors that will be logged
+     * 
+     * @return int  Binary set of E_* constants
+     */
+    public function getLoggedErrorTypes()
+    {
+        return $this->logErrorTypes;
+    }
+    
     
     /**
      * Run middleware action
@@ -147,7 +195,7 @@ class ErrorHandler implements LoggerAwareInterface
         
         if ($this->error) {
             $this->log($this->error);
-            $nextResponse = $this->handleError($response);
+            $nextResponse = $this->errorResponse($request, $response);
         }
         
         return $nextResponse;
@@ -156,15 +204,128 @@ class ErrorHandler implements LoggerAwareInterface
     /**
      * Handle caught error
      *
-     * @param ResponseInterface $response
+     * @param ServerRequestInterface $request
+     * @param ResponseInterface      $response
      * @return ResponseInterface
      */
-    protected function handleError($response)
+    protected function errorResponse(ServerRequestInterface $request, ResponseInterface $response)
     {
         $errorResponse = $response->withStatus(500);
         $errorResponse->getBody()->write('Unexpected error');
 
         return $errorResponse;
+    }
+    
+    /**
+     * Use the global error handler to convert E_USER_ERROR and E_RECOVERABLE_ERROR to an ErrorException
+     */
+    public function converErrorsToExceptions()
+    {
+        $this->convertFatalErrors = true;
+        $this->initErrorHandler();
+    }
+    
+    /**
+     * Also log these types of errors in addition to caught errors and exceptions
+     * 
+     * @param int $errorTypes  E_* contants as binary set
+     */
+    public function alsoLog($errorTypes)
+    {
+        $this->logErrorTypes |= $errorTypes;
+        
+        $nonFatal = E_WARNING | E_NOTICE | E_USER_WARNING | E_USER_NOTICE | E_STRICT | E_DEPRECATED | E_USER_DEPRECATED;
+        $unhandled = E_ERROR|E_PARSE|E_CORE_ERROR|E_COMPILE_ERROR;
+            
+        if ($this->logErrorTypes & $nonFatal) {
+            $this->initErrorHandler();
+        }
+        
+        if ($this->logErrorTypes & $unhandled) {
+            $this->initShutdownFunction();
+        }
+    }
+    
+    /**
+     * Use the global error handler
+     */
+    protected function initErrorHandler()
+    {
+        if (!isset($this->chainedErrorHandler)) {
+            $this->chainedErrorHandler = $this->setErrorHandler([$this, 'errorHandler']) ?: false;
+        }
+    }
+    
+    /**
+     * Uncaught error handler
+     * @ignore
+     * 
+     * @param int    $type
+     * @param string $message
+     * @param string $file
+     * @param int    $line
+     * @param array  $context
+     */
+    public function errorHandler($type, $message, $file, $line, $context)
+    {
+        if ($this->errorReporting() & $type) {
+            $error = \ErrorException($message, 0, $type, $file, $line);
+
+            if ($this->convertFatalErrors && ($type & (E_RECOVERABLE_ERROR | E_USER_ERROR))) {
+                throw new $error;
+            }
+
+            if ($this->logErrorTypes & $type) {
+                $this->log($error);
+            }
+        }
+        
+        return $this->chainedErrorHandler
+            ? call_user_func($this->chainedErrorHandler, $type, $message, $file, $line, $context)
+            : false;
+    }
+
+    /**
+     * Reserve memory for shutdown function in case of out of memory
+     */
+    protected function reserveMemory()
+    {
+        $this->reservedMemory = str_repeat(' ', 10 * 1024);
+    }
+    
+    /**
+     * Register a shutdown function
+     */
+    protected function initShutdownFunction()
+    {
+        if (!$this->registeredShutdown) {
+            $this->registerShutdownFunction([$this, 'shutdownFunction']) ?: false;
+            $this->registeredShutdown = true;
+            
+            $this->reserveMemory();
+        }
+    }
+    
+    /**
+     * Called when the script has ends
+     * @ignore
+     */
+    public function shutdownFunction()
+    {
+        $this->reservedMemory = null;
+        
+        $err = $this->errorGetLast();
+        $unhandled = E_ERROR|E_PARSE|E_CORE_ERROR|E_COMPILE_ERROR;
+        
+        if (!($err['type'] & $unhandled)) {
+            return;
+        }
+        
+        $error = new \ErrorException($err['type'], $err['message'], $err['file'], $err['line']);
+        
+        if ($err['type'] & $this->logErrorTypes) {
+            $this->log($error);
+        }
     }
     
     
@@ -239,5 +400,52 @@ class ErrorHandler implements LoggerAwareInterface
         }
         
         return 'Unknown error';
-    }    
+    }
+    
+    
+    /**
+     * Wrapper method for `error_reporting`
+     * @codeCoverageIgnore
+     * 
+     * @return int
+     */
+    protected function errorReporting()
+    {
+        return error_reporting();
+    }
+
+    /**
+     * Wrapper method for `error_get_last`
+     * @codeCoverageIgnore
+     * 
+     * @return array
+     */
+    protected function errorGetLast()
+    {
+        return error_get_last();
+    }
+    
+    /**
+     * Wrapper method for `set_error_handler`
+     * @codeCoverageIgnore
+     * 
+     * @param callable $callback
+     * @param int      $error_types
+     * @return callable|null
+     */
+    protected function setErrorHandler($callback, $error_types = E_ALL | E_STRICT)
+    {
+        return set_error_handler($callback, $error_types);
+    }
+    
+    /**
+     * Wrapper method for `register_shutdown_function`
+     * @codeCoverageIgnore
+     * 
+     * @param callable $callback
+     */
+    protected function registerShutdownFunction($callback)
+    {
+        register_shutdown_function($callback);
+    }
 }

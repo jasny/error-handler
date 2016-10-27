@@ -25,7 +25,8 @@ class ErrorHandlerTest extends \PHPUnit_Framework_TestCase
     public function setUp()
     {
         $this->errorHandler = $this->getMockBuilder(ErrorHandler::class)
-            ->setMethods(['errorReporting', 'errorGetLast', 'setErrorHandler', 'registerShutdownFunction'])
+            ->setMethods(['errorReporting', 'errorGetLast', 'setErrorHandler', 'registerShutdownFunction',
+                'clearOutputBuffer'])
             ->getMock();
     }
     
@@ -383,12 +384,12 @@ class ErrorHandlerTest extends \PHPUnit_Framework_TestCase
      * 
      * @param int          $alsoLog
      * @param int          $code
-     * @param InvokedCount $expectsLog
+     * @param InvokedCount $expectLog
      */
-    public function testHandleErrorWithLogging($alsoLog, $code, InvokedCount $expectsLog)
+    public function testHandleErrorWithLogging($alsoLog, $code, InvokedCount $expectLog)
     {
         $logger = $this->createMock(LoggerInterface::class);
-        $logger->expects($expectsLog)->method('log')
+        $logger->expects($expectLog)->method('log')
             ->with($this->isType('string'), $this->stringEndsWith("no good at foo.php line 42"), $this->anything());
         
         $errorHandler = $this->errorHandler;
@@ -405,10 +406,10 @@ class ErrorHandlerTest extends \PHPUnit_Framework_TestCase
      * 
      * @param int          $alsoLog          Ignored
      * @param int          $code
-     * @param InvokedCount $expectsLog       Ignored
+     * @param InvokedCount $expectLog       Ignored
      * @param boolean      $expectException
      */
-    public function testHandleErrorWithConvertError($alsoLog, $code, InvokedCount $expectsLog, $expectException)
+    public function testHandleErrorWithConvertError($alsoLog, $code, InvokedCount $expectLog, $expectException)
     {
         $logger = $this->createMock(LoggerInterface::class);
         $logger->expects($this->never())->method('log');
@@ -453,14 +454,14 @@ class ErrorHandlerTest extends \PHPUnit_Framework_TestCase
     /**
      * @dataProvider shutdownFunctionProvider
      * 
-     * @param int          $alsoLog          Ignored
+     * @param int          $alsoLog         Ignored
      * @param int          $code
-     * @param InvokedCount $expectsLog       Ignored
+     * @param InvokedCount $expectLog       Ignored
      */
-    public function testShutdownFunction($alsoLog, $code, InvokedCount $expectsLog)
+    public function testShutdownFunction($alsoLog, $code, InvokedCount $expectLog)
     {
         $logger = $this->createMock(LoggerInterface::class);
-        $logger->expects($expectsLog)->method('log')
+        $logger->expects($expectLog)->method('log')
             ->with($this->isType('string'), $this->stringEndsWith("no good at foo.php line 42"), $this->anything());
         
         $errorHandler = $this->errorHandler;
@@ -478,6 +479,55 @@ class ErrorHandlerTest extends \PHPUnit_Framework_TestCase
         $errorHandler->setLogger($logger);
         $errorHandler->alsoLog($alsoLog);
         
-        $this->errorHandler->shutdownFunction();
+        $this->assertAttributeNotEmpty('reservedMemory', $errorHandler);
+        
+        $errorHandler->shutdownFunction();
+        
+        $this->assertAttributeEmpty('reservedMemory', $errorHandler);
+    }
+    
+    public function shutdownFunctionWithCallbackProvider()
+    {
+        return [
+            [true, $this->once()],
+            [false, $this->never()]
+        ];
+    }
+    
+    /**
+     * @dataProvider shutdownFunctionWithCallbackProvider
+     * 
+     * @param boolean      $clearOutput
+     * @param InvokedCount $expectClear
+     */
+    public function testShutdownFunctionWithCallback($clearOutput, InvokedCount $expectClear)
+    {
+        $errorHandler = $this->errorHandler;
+        
+        $error = [
+            'type' => E_ERROR,
+            'message' => 'no good',
+            'file' => 'foo.php',
+            'line' => 42
+        ];
+        
+        $errorHandler->expects($this->once())->method('errorGetLast')->willReturn($error);
+
+        $errorHandler->expects($expectClear)->method('clearOutputBuffer');
+        
+        $callback = $this->getMockBuilder(\stdClass::class)->setMethods(['__invoke'])->getMock();
+        $callback->expects($this->once())->method('__invoke')
+            ->with($this->callback(function($error){
+                $this->assertInstanceOf(\ErrorException::class, $error);
+                $this->assertEquals('no good', $error->getMessage());
+                $this->assertEquals('foo.php', $error->getFile());
+                $this->assertEquals(42, $error->getLine());
+                
+                return true;
+            }));
+        
+        $errorHandler->onFatalError($callback, $clearOutput);
+        
+        $errorHandler->shutdownFunction();
     }
 }

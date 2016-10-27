@@ -53,6 +53,11 @@ class ErrorHandler implements LoggerAwareInterface
      */
     protected $reservedMemory;
     
+    /**
+     * @var callback
+     */
+    protected $onFatalError;
+
     
     /**
      * Set the logger for logging errors
@@ -216,6 +221,7 @@ class ErrorHandler implements LoggerAwareInterface
         return $errorResponse;
     }
     
+    
     /**
      * Use the global error handler to convert E_USER_ERROR and E_RECOVERABLE_ERROR to an ErrorException
      */
@@ -243,6 +249,25 @@ class ErrorHandler implements LoggerAwareInterface
         
         if ($this->logErrorTypes & $unhandled) {
             $this->initShutdownFunction();
+        }
+    }
+    
+    /**
+     * Set a callback for when the script dies because of a fatal, non-catchable error.
+     * The callback should have an `ErrorException` as only argument.
+     * 
+     * @param callable $callback
+     * @param boolean  $clearOutput  Clear the output buffer before calling the callback
+     */
+    public function onFatalError($callback, $clearOutput = false)
+    {
+        if (!$clearOutput) {
+            $this->onFatalError = $callback;
+        } else {
+            $this->onFatalError = function($error) use ($callback) {
+                $this->clearOutputBuffer();
+                $callback($error);
+            };
         }
     }
     
@@ -326,6 +351,10 @@ class ErrorHandler implements LoggerAwareInterface
         if ($err['type'] & $this->logErrorTypes) {
             $this->log($error);
         }
+        
+        if ($this->onFatalError) {
+            call_user_func($this->onFatalError, $error);
+        }
     }
     
     
@@ -402,6 +431,17 @@ class ErrorHandler implements LoggerAwareInterface
         return 'Unknown error';
     }
     
+    
+    /**
+     * Clear and destroy all the output buffers
+     * @codeCoverageIgnore
+     */
+    protected function clearOutputBuffer()
+    {
+        while (ob_get_level() > 0) {
+            ob_end_clean();
+        }
+    }
     
     /**
      * Wrapper method for `error_reporting`

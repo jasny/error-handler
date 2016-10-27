@@ -8,6 +8,8 @@ use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\StreamInterface;
 use Psr\Log\LoggerInterface;
 use Psr\Log\LogLevel;
+
+use PHPUnit_Framework_MockObject_MockObject as MockObject;
 use PHPUnit_Framework_MockObject_Matcher_InvokedCount as InvokedCount;
 
 /**
@@ -15,6 +17,11 @@ use PHPUnit_Framework_MockObject_Matcher_InvokedCount as InvokedCount;
  */
 class ErrorHandlerTest extends \PHPUnit_Framework_TestCase
 {
+    /**
+     * @var ErrorHandler|MockObject
+     */
+    protected $errorHandler;
+    
     protected function assertPrivatePropertyNotNull($property, $actual)
     {
         $refl = new \ReflectionProperty(ErrorHandler::class, $property);
@@ -26,6 +33,13 @@ class ErrorHandlerTest extends \PHPUnit_Framework_TestCase
     }
     
     
+    public function setUp()
+    {
+        $this->errorHandler = $this->getMockBuilder(ErrorHandler::class)
+            ->setMethods(['errorReporting', 'errorGetLast', 'setErrorHandler', 'registerShutdownFunction'])
+            ->getMock();
+    }
+    
     /**
      * Test invoke with invalid 'next' param
      * 
@@ -36,9 +50,9 @@ class ErrorHandlerTest extends \PHPUnit_Framework_TestCase
         $request = $this->createMock(ServerRequestInterface::class);
         $response = $this->createMock(ResponseInterface::class);
         
-        $middleware = new ErrorHandler();
-
-        $middleware($request, $response, 'not callable');
+        $errorHandler = $this->errorHandler;
+        
+        $errorHandler($request, $response, 'not callable');
     }
 
     /**
@@ -55,7 +69,7 @@ class ErrorHandlerTest extends \PHPUnit_Framework_TestCase
             ->with($request, $response)
             ->willReturn($finalResponse);
         
-        $errorHandler = new ErrorHandler();
+        $errorHandler = $this->errorHandler;
 
         $result = $errorHandler($request, $response, $next);        
 
@@ -84,7 +98,7 @@ class ErrorHandlerTest extends \PHPUnit_Framework_TestCase
             ->with($request, $response)
             ->willThrowException($exception);
         
-        $errorHandler = new ErrorHandler();
+        $errorHandler = $this->errorHandler;
         
         $result = $errorHandler($request, $response, $next);
 
@@ -118,7 +132,7 @@ class ErrorHandlerTest extends \PHPUnit_Framework_TestCase
                 \this_function_does_not_exist();
             });
         
-        $errorHandler = new ErrorHandler();
+        $errorHandler = $this->errorHandler;
         
         $result = $errorHandler($request, $response, $next);
 
@@ -133,7 +147,7 @@ class ErrorHandlerTest extends \PHPUnit_Framework_TestCase
     {
         $logger = $this->createMock(LoggerInterface::class);
         
-        $errorHandler = new ErrorHandler();
+        $errorHandler = $this->errorHandler;
         $errorHandler->setLogger($logger);
         
         $this->assertSame($logger, $errorHandler->getLogger());
@@ -158,7 +172,7 @@ class ErrorHandlerTest extends \PHPUnit_Framework_TestCase
         $logger->expects($this->once())->method('log')
             ->with(LogLevel::ERROR, $message, $context);
         
-        $errorHandler = new ErrorHandler();
+        $errorHandler = $this->errorHandler;
         $errorHandler->setLogger($logger);
         
         $next = $this->getMockBuilder(\stdClass::class)->setMethods(['__invoke'])->getMock();
@@ -207,7 +221,7 @@ class ErrorHandlerTest extends \PHPUnit_Framework_TestCase
         $logger->expects($this->once())->method('log')
             ->with($level, "$type: no good at foo.php line 42", $context);
         
-        $errorHandler = new ErrorHandler();
+        $errorHandler = $this->errorHandler;
         $errorHandler->setLogger($logger);
 
         $errorHandler->log($error);
@@ -224,7 +238,7 @@ class ErrorHandlerTest extends \PHPUnit_Framework_TestCase
         $logger->expects($this->once())->method('log')
             ->with(LogLevel::ERROR, $message, $context);
         
-        $errorHandler = new ErrorHandler();
+        $errorHandler = $this->errorHandler;
         $errorHandler->setLogger($logger);
 
         $errorHandler->log($exception);
@@ -235,7 +249,7 @@ class ErrorHandlerTest extends \PHPUnit_Framework_TestCase
         $logger = $this->createMock(LoggerInterface::class);
         $logger->expects($this->once())->method('log')->with(LogLevel::WARNING, "Unable to log a string");
         
-        $errorHandler = new ErrorHandler();
+        $errorHandler = $this->errorHandler;
         $errorHandler->setLogger($logger);
 
         $errorHandler->log('foo');
@@ -246,10 +260,24 @@ class ErrorHandlerTest extends \PHPUnit_Framework_TestCase
         $logger = $this->createMock(LoggerInterface::class);
         $logger->expects($this->once())->method('log')->with(LogLevel::WARNING, "Unable to log a stdClass object");
         
-        $errorHandler = new ErrorHandler();
+        $errorHandler = $this->errorHandler;
         $errorHandler->setLogger($logger);
 
         $errorHandler->log(new \stdClass());
+    }
+    
+    
+    public function testConverErrorsToExceptions()
+    {
+        $errorHandler = $this->errorHandler;
+
+        $errorHandler->expects($this->once())->method('setErrorHandler')
+            ->with([$errorHandler, 'errorHandler'])
+            ->willReturn(null);
+        
+        $errorHandler->converErrorsToExceptions();
+        
+        $this->assertSame(0, $errorHandler->getLoggedErrorTypes());
     }
     
     

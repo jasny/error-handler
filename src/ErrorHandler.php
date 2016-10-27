@@ -252,7 +252,7 @@ class ErrorHandler implements LoggerAwareInterface
     protected function initErrorHandler()
     {
         if (!isset($this->chainedErrorHandler)) {
-            $this->chainedErrorHandler = $this->setErrorHandler([$this, 'errorHandler']) ?: false;
+            $this->chainedErrorHandler = $this->setErrorHandler([$this, 'handleError']) ?: false;
         }
     }
     
@@ -266,7 +266,7 @@ class ErrorHandler implements LoggerAwareInterface
      * @param int    $line
      * @param array  $context
      */
-    public function errorHandler($type, $message, $file, $line, $context)
+    public function handleError($type, $message, $file, $line, $context)
     {
         if ($this->errorReporting() & $type) {
             $error = new \ErrorException($message, 0, $type, $file, $line);

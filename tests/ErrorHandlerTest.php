@@ -261,7 +261,7 @@ class ErrorHandlerTest extends \PHPUnit_Framework_TestCase
         $errorHandler = $this->errorHandler;
 
         $errorHandler->expects($this->once())->method('setErrorHandler')
-            ->with([$errorHandler, 'errorHandler'])
+            ->with([$errorHandler, 'handleError'])
             ->willReturn(null);
         
         $errorHandler->converErrorsToExceptions();
@@ -297,7 +297,7 @@ class ErrorHandlerTest extends \PHPUnit_Framework_TestCase
         $errorHandler = $this->errorHandler;
         
         $errorHandler->expects($expectErrorHandler)->method('setErrorHandler')
-            ->with([$errorHandler, 'errorHandler'])
+            ->with([$errorHandler, 'handleError'])
             ->willReturn(null);
         
         $errorHandler->expects($expectShutdownFunction)->method('registerShutdownFunction')
@@ -328,7 +328,7 @@ class ErrorHandlerTest extends \PHPUnit_Framework_TestCase
         $callback = function() {};
         
         $errorHandler->expects($this->once())->method('setErrorHandler')
-            ->with([$errorHandler, 'errorHandler'])
+            ->with([$errorHandler, 'handleError'])
             ->willReturn($callback);
         
         $errorHandler->alsoLog(E_WARNING);
@@ -385,7 +385,7 @@ class ErrorHandlerTest extends \PHPUnit_Framework_TestCase
      * @param int          $code
      * @param InvokedCount $expectsLog
      */
-    public function testErrorHandlerWithLogging($alsoLog, $code, InvokedCount $expectsLog)
+    public function testHandleErrorWithLogging($alsoLog, $code, InvokedCount $expectsLog)
     {
         $logger = $this->createMock(LoggerInterface::class);
         $logger->expects($expectsLog)->method('log')
@@ -397,7 +397,7 @@ class ErrorHandlerTest extends \PHPUnit_Framework_TestCase
         $errorHandler->setLogger($logger);
         $errorHandler->alsoLog($alsoLog);
         
-        $this->errorHandler->errorHandler($code, 'no good', 'foo.php', 42, []);
+        $this->errorHandler->handleError($code, 'no good', 'foo.php', 42, []);
     }
     
     /**
@@ -408,7 +408,7 @@ class ErrorHandlerTest extends \PHPUnit_Framework_TestCase
      * @param InvokedCount $expectsLog       Ignored
      * @param boolean      $expectException
      */
-    public function testErrorHandlerWithConvertError($alsoLog, $code, InvokedCount $expectsLog, $expectException)
+    public function testHandleErrorWithConvertError($alsoLog, $code, InvokedCount $expectsLog, $expectException)
     {
         $logger = $this->createMock(LoggerInterface::class);
         $logger->expects($this->never())->method('log');
@@ -421,7 +421,7 @@ class ErrorHandlerTest extends \PHPUnit_Framework_TestCase
         $errorHandler->converErrorsToExceptions();
         
         try {
-            $this->errorHandler->errorHandler($code, 'no good', 'foo.php', 42, []);
+            $this->errorHandler->handleError($code, 'no good', 'foo.php', 42, []);
             
             if ($expectException) {
                 $this->fail("Expected error exception wasn't thrown");

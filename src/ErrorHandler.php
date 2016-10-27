@@ -4,7 +4,6 @@ namespace Jasny;
 
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Message\ResponseInterface;
-
 use Psr\Log\LoggerInterface;
 use Psr\Log\LoggerAwareInterface;
 use Psr\Log\LogLevel;
@@ -192,9 +191,9 @@ class ErrorHandler implements LoggerAwareInterface
         try {
             $this->error = null;
             $nextResponse = $next($request, $response);
-        } catch(\Error $e) {
+        } catch (\Error $e) {
             $this->error = $e;
-        } catch(\Exception $e) {
+        } catch (\Exception $e) {
             $this->error = $e;
         }
         
@@ -241,7 +240,7 @@ class ErrorHandler implements LoggerAwareInterface
         $this->logErrorTypes |= $errorTypes;
         
         $nonFatal = E_WARNING | E_NOTICE | E_USER_WARNING | E_USER_NOTICE | E_STRICT | E_DEPRECATED | E_USER_DEPRECATED;
-        $unhandled = E_ERROR|E_PARSE|E_CORE_ERROR|E_COMPILE_ERROR;
+        $unhandled = E_ERROR | E_PARSE | E_CORE_ERROR | E_COMPILE_ERROR;
             
         if ($this->logErrorTypes & $nonFatal) {
             $this->initErrorHandler();
@@ -264,7 +263,7 @@ class ErrorHandler implements LoggerAwareInterface
         if (!$clearOutput) {
             $this->onFatalError = $callback;
         } else {
-            $this->onFatalError = function($error) use ($callback) {
+            $this->onFatalError = function ($error) use ($callback) {
                 $this->clearOutputBuffer();
                 $callback($error);
             };
@@ -340,7 +339,7 @@ class ErrorHandler implements LoggerAwareInterface
         $this->reservedMemory = null;
         
         $err = $this->errorGetLast();
-        $unhandled = E_ERROR|E_PARSE|E_CORE_ERROR|E_COMPILE_ERROR;
+        $unhandled = E_ERROR | E_PARSE | E_CORE_ERROR | E_COMPILE_ERROR;
         
         if (!$err || !($err['type'] & $unhandled)) {
             return;

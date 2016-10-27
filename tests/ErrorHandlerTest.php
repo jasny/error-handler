@@ -22,17 +22,6 @@ class ErrorHandlerTest extends \PHPUnit_Framework_TestCase
      */
     protected $errorHandler;
     
-    protected function assertPrivatePropertyNotNull($property, $actual)
-    {
-        $refl = new \ReflectionProperty(ErrorHandler::class, $property);
-        $refl->setAccessible(true);
-        
-        $value = $refl->getValue($actual);
-        
-        $this->assertNotNull($value);
-    }
-    
-    
     public function setUp()
     {
         $this->errorHandler = $this->getMockBuilder(ErrorHandler::class)
@@ -305,9 +294,7 @@ class ErrorHandlerTest extends \PHPUnit_Framework_TestCase
      */
     public function testAlsoLog($code, InvokedCount $expectErrorHandler, InvokedCount $expectShutdownFunction)
     {
-        $errorHandler = $this->getMockBuilder(ErrorHandler::class)
-            ->setMethods(['setErrorHandler', 'registerShutdownFunction'])
-            ->getMock();
+        $errorHandler = $this->errorHandler;
         
         $errorHandler->expects($expectErrorHandler)->method('setErrorHandler')
             ->with([$errorHandler, 'errorHandler'])
@@ -323,9 +310,7 @@ class ErrorHandlerTest extends \PHPUnit_Framework_TestCase
     
     public function testAlsoLogCombine()
     {
-        $errorHandler = $this->getMockBuilder(ErrorHandler::class)
-            ->setMethods(['setErrorHandler', 'registerShutdownFunction'])
-            ->getMock();
+        $errorHandler = $this->errorHandler;
         
         $errorHandler->alsoLog(E_NOTICE | E_USER_NOTICE);
         $errorHandler->alsoLog(E_WARNING | E_USER_WARNING);
@@ -338,9 +323,7 @@ class ErrorHandlerTest extends \PHPUnit_Framework_TestCase
 
     public function testInitErrorHandler()
     {
-        $errorHandler = $this->getMockBuilder(ErrorHandler::class)
-            ->setMethods(['setErrorHandler', 'registerShutdownFunction'])
-            ->getMock();
+        $errorHandler = $this->errorHandler;
         
         $callback = function() {};
         
@@ -358,9 +341,7 @@ class ErrorHandlerTest extends \PHPUnit_Framework_TestCase
     
     public function testInitShutdownFunction()
     {
-        $errorHandler = $this->getMockBuilder(ErrorHandler::class)
-            ->setMethods(['setErrorHandler', 'registerShutdownFunction'])
-            ->getMock();
+        $errorHandler = $this->errorHandler;
 
         $errorHandler->expects($this->once())->method('registerShutdownFunction')
             ->with([$errorHandler, 'shutdownFunction']);
@@ -370,6 +351,133 @@ class ErrorHandlerTest extends \PHPUnit_Framework_TestCase
         // Subsequent calls should have no effect
         $errorHandler->alsoLog(E_PARSE);
         
-        $this->assertPrivatePropertyNotNull('reservedMemory', $errorHandler);
+        $this->assertAttributeNotEmpty('reservedMemory', $errorHandler);
+    }
+    
+
+    public function errorHandlerProvider()
+    {
+        return [
+            [0, E_WARNING, $this->never(), false],
+            
+            [E_ALL, E_RECOVERABLE_ERROR, $this->once(), true],
+            [E_ALL, E_WARNING, $this->once(), false],
+            [E_ALL, E_NOTICE, $this->once(), false],
+            
+            [E_WARNING | E_USER_WARNING, E_RECOVERABLE_ERROR, $this->never(), true],
+            [E_WARNING | E_USER_WARNING, E_WARNING, $this->once(), false],
+            [E_WARNING | E_USER_WARNING, E_NOTICE, $this->never(), false],
+            
+            [E_STRICT, E_RECOVERABLE_ERROR, $this->never(), true],
+            [E_STRICT, E_STRICT, $this->once(), false],
+            
+            [E_RECOVERABLE_ERROR | E_USER_ERROR, E_RECOVERABLE_ERROR, $this->once(), true],
+            [E_RECOVERABLE_ERROR | E_USER_ERROR, E_WARNING, $this->never(), false],
+            [E_RECOVERABLE_ERROR | E_USER_ERROR, E_NOTICE, $this->never(), false],
+            [E_RECOVERABLE_ERROR | E_USER_ERROR, E_STRICT, $this->never(), false]
+        ];
+    }
+    
+    /**
+     * @dataProvider errorHandlerProvider
+     * 
+     * @param int          $alsoLog
+     * @param int          $code
+     * @param InvokedCount $expectsLog
+     */
+    public function testErrorHandlerWithLogging($alsoLog, $code, InvokedCount $expectsLog)
+    {
+        $logger = $this->createMock(LoggerInterface::class);
+        $logger->expects($expectsLog)->method('log')
+            ->with($this->isType('string'), $this->stringEndsWith("no good at foo.php line 42"), $this->anything());
+        
+        $errorHandler = $this->errorHandler;
+        $errorHandler->expects($this->once())->method('errorReporting')->willReturn(E_ALL | E_STRICT);
+        
+        $errorHandler->setLogger($logger);
+        $errorHandler->alsoLog($alsoLog);
+        
+        $this->errorHandler->errorHandler($code, 'no good', 'foo.php', 42, []);
+    }
+    
+    /**
+     * @dataProvider errorHandlerProvider
+     * 
+     * @param int          $alsoLog          Ignored
+     * @param int          $code
+     * @param InvokedCount $expectsLog       Ignored
+     * @param boolean      $expectException
+     */
+    public function testErrorHandlerWithConvertError($alsoLog, $code, InvokedCount $expectsLog, $expectException)
+    {
+        $logger = $this->createMock(LoggerInterface::class);
+        $logger->expects($this->never())->method('log');
+        
+        $errorHandler = $this->errorHandler;
+        $errorHandler->expects($this->once())->method('errorReporting')->willReturn(E_ALL | E_STRICT);
+        
+        $errorHandler->setLogger($logger);
+        
+        $errorHandler->converErrorsToExceptions();
+        
+        try {
+            $this->errorHandler->errorHandler($code, 'no good', 'foo.php', 42, []);
+            
+            if ($expectException) {
+                $this->fail("Expected error exception wasn't thrown");
+            }
+        } catch (\ErrorException $exception) {
+            if (!$expectException) {
+                $this->fail("Error exception shouldn't have been thrown");
+            }
+            
+            $this->assertInstanceOf(\ErrorException::class, $exception);
+            $this->assertEquals('no good', $exception->getMessage());
+            $this->assertEquals('foo.php', $exception->getFile());
+            $this->assertEquals(42, $exception->getLine());
+        }
+    }
+    
+    public function shutdownFunctionProvider()
+    {
+        return [
+            [E_ALL, E_PARSE, $this->once()],
+            [E_ERROR | E_WARNING, E_PARSE, $this->never()],
+            [E_ALL, E_ERROR, $this->once()],
+            [E_ALL, E_USER_ERROR, $this->never()],
+            [E_ALL, E_WARNING, $this->never()],
+            [E_ALL, null, $this->never()]
+        ];
+    }
+    
+    /**
+     * @dataProvider shutdownFunctionProvider
+     * 
+     * @param int          $alsoLog          Ignored
+     * @param int          $code
+     * @param InvokedCount $expectsLog       Ignored
+     */
+    public function testShutdownFunction($alsoLog, $code, InvokedCount $expectsLog)
+    {
+        $logger = $this->createMock(LoggerInterface::class);
+        $logger->expects($expectsLog)->method('log')
+            ->with($this->isType('string'), $this->stringEndsWith("no good at foo.php line 42"), $this->anything());
+        
+        $errorHandler = $this->errorHandler;
+        
+        $error = [
+            'type' => $code,
+            'message' => 'no good',
+            'file' => 'foo.php',
+            'line' => 42
+        ];
+        
+        $errorHandler->expects($this->once())->method('errorGetLast')
+            ->willReturn($code ? $error : null);
+        
+        $errorHandler->setLogger($logger);
+        $errorHandler->alsoLog($alsoLog);
+        
+        $this->errorHandler->shutdownFunction();
     }
 }

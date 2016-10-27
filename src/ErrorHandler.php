@@ -269,10 +269,10 @@ class ErrorHandler implements LoggerAwareInterface
     public function errorHandler($type, $message, $file, $line, $context)
     {
         if ($this->errorReporting() & $type) {
-            $error = \ErrorException($message, 0, $type, $file, $line);
+            $error = new \ErrorException($message, 0, $type, $file, $line);
 
             if ($this->convertFatalErrors && ($type & (E_RECOVERABLE_ERROR | E_USER_ERROR))) {
-                throw new $error;
+                throw $error;
             }
 
             if ($this->logErrorTypes & $type) {
@@ -317,11 +317,11 @@ class ErrorHandler implements LoggerAwareInterface
         $err = $this->errorGetLast();
         $unhandled = E_ERROR|E_PARSE|E_CORE_ERROR|E_COMPILE_ERROR;
         
-        if (!($err['type'] & $unhandled)) {
+        if (!$err || !($err['type'] & $unhandled)) {
             return;
         }
         
-        $error = new \ErrorException($err['type'], $err['message'], $err['file'], $err['line']);
+        $error = new \ErrorException($err['message'], 0, $err['type'], $err['file'], $err['line']);
         
         if ($err['type'] & $this->logErrorTypes) {
             $this->log($error);
@@ -433,7 +433,7 @@ class ErrorHandler implements LoggerAwareInterface
      * @param int      $error_types
      * @return callable|null
      */
-    protected function setErrorHandler($callback, $error_types = E_ALL | E_STRICT)
+    protected function setErrorHandler($callback, $error_types = E_ALL)
     {
         return set_error_handler($callback, $error_types);
     }

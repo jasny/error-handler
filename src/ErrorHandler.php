@@ -48,10 +48,10 @@ class ErrorHandler implements LoggerAwareInterface
     protected $logErrorTypes = 0;
     
     /**
-     * Log the following error types (in addition to caugth errors)
-     * @var int
+     * Log the following exception classes (and subclasses)
+     * @var array
      */
-    protected $logExceptions = [];
+    protected $logExceptionClasses = [];
     
     /**
      * A string which reserves memory that can be used to log the error in case of an out of memory fatal error
@@ -112,7 +112,6 @@ class ErrorHandler implements LoggerAwareInterface
         return $this->chainedExceptionHandler;
     }
     
-    
     /**
      * Get the types of errors that will be logged
      * 
@@ -122,6 +121,16 @@ class ErrorHandler implements LoggerAwareInterface
     {
         return $this->logErrorTypes;
     }
+    
+    /**
+     * Get a list of Exception and other Throwable classes that will be logged
+     * @return array
+     */
+    public function getLoggedExceptionClasses()
+    {
+        return $this->logExceptionClasses;
+    }
+    
     
     /**
      * Use the global error handler to convert E_USER_ERROR and E_RECOVERABLE_ERROR to an ErrorException
@@ -155,8 +164,8 @@ class ErrorHandler implements LoggerAwareInterface
      */
     protected function logUncaughtException($class)
     {
-        if (!in_array($class, $this->logExceptions)) {
-            $this->logExceptions[] = $class;
+        if (!in_array($class, $this->logExceptionClasses)) {
+            $this->logExceptionClasses[] = $class;
         }
 
         $this->initExceptionHandler();
@@ -262,36 +271,41 @@ class ErrorHandler implements LoggerAwareInterface
     }
     
     /**
-     * Uncaught error handler
+     * Uncaught exception handler
      * @ignore
      * 
      * @param \Exception|\Error $exception
      */
     public function handleException($exception)
     {
+        $this->setExceptionHandler(null);
+        $this->setErrorHandler(null);
+        
         $isInstanceOf = array_map(function($class) use ($exception) {
             return is_a($exception, $class);
-        }, $this->logExceptions);
+        }, $this->logExceptionClasses);
         
-        $shouldLog = array_sum($isInstanceOf) > 0;
+        if ($exception instanceof \Error || $exception instanceof \ErrorException) {
+            $type = $exception instanceof \Error ? $exception->getCode() : $exception->getSeverity();
+            $shouldLog = $this->logErrorTypes & $type;
+        } else {
+            $shouldLog = array_sum($isInstanceOf) > 0;
+        }
         
         if ($shouldLog) {
             $this->log($exception);
         }
         
-        if ($this->chainedExceptionHandler) {
-            call_user_func($this->chainedErrorHandler, $type, $message, $file, $line, $context);
-        }
-        
-        set_error_handler(null);
-        
-        $warning = sprintf("Uncaught exception '%s' with message '%s' in %s:%d", get_class($exception),
-            $exception->getMessage(), $exception->getFile(), $exception->getLine());
-        trigger_error($warning, E_USER_WARNING);
-        
         if ($this->onFatalError) {
             call_user_func($this->onFatalError, $exception);
         }
+        
+        if ($this->chainedExceptionHandler) {
+            call_user_func($this->chainedExceptionHandler, $exception);
+        }
+        
+        
+        throw $exception; // This is now handled by the default exception and error handler
     }
 
     
@@ -398,7 +412,7 @@ class ErrorHandler implements LoggerAwareInterface
      */
     protected function setExceptionHandler($callback)
     {
-        return set_error_handler($callback);
+        return set_exception_handler($callback);
     }
     
     /**

@@ -161,7 +161,7 @@ class ErrorHandlerTest extends \PHPUnit_Framework_TestCase
     }
     
     
-    public function logUncaughtProvider()
+    public function logUncaughtErrorProvider()
     {
         return [
             [E_ALL, $this->once(), $this->once()],
@@ -177,13 +177,13 @@ class ErrorHandlerTest extends \PHPUnit_Framework_TestCase
     }
     
     /**
-     * @dataProvider logUncaughtProvider
+     * @dataProvider logUncaughtErrorProvider
      * 
      * @param int          $code
      * @param InvokedCount $expectErrorHandler
      * @param InvokedCount $expectShutdownFunction
      */
-    public function testLogUncaught($code, InvokedCount $expectErrorHandler, InvokedCount $expectShutdownFunction)
+    public function testLogUncaughtError($code, InvokedCount $expectErrorHandler, InvokedCount $expectShutdownFunction)
     {
         $errorHandler = $this->errorHandler;
         
@@ -193,10 +193,28 @@ class ErrorHandlerTest extends \PHPUnit_Framework_TestCase
         
         $errorHandler->expects($expectShutdownFunction)->method('registerShutdownFunction')
             ->with([$errorHandler, 'shutdownFunction']);
+
+        $errorHandler->expects($this->never())->method('setExceptionHandler');
         
         $errorHandler->logUncaught($code);
         
         $this->assertSame($code, $errorHandler->getLoggedErrorTypes());
+    }
+    
+    public function testLogUncaughtException()
+    {
+        $errorHandler = $this->errorHandler;
+        
+        $errorHandler->expects($this->never())->method('setErrorHandler');
+        $errorHandler->expects($this->never())->method('registerShutdownFunction');
+        
+        $errorHandler->expects($this->once())->method('setExceptionHandler')
+            ->with([$errorHandler, 'handleException'])
+            ->willReturn(null);
+        
+        $errorHandler->logUncaught(\Exception::class);
+        
+        $this->assertSame([\Exception::class], $errorHandler->getLoggedExceptionClasses());
     }
     
     public function testLogUncaughtCombine()
@@ -206,11 +224,30 @@ class ErrorHandlerTest extends \PHPUnit_Framework_TestCase
         $errorHandler->logUncaught(E_NOTICE | E_USER_NOTICE);
         $errorHandler->logUncaught(E_WARNING | E_USER_WARNING);
         $errorHandler->logUncaught(E_ERROR);
-        $errorHandler->logUncaught(E_PARSE);
+        $errorHandler->logUncaught(E_ERROR | E_PARSE);
         
-        $expected = E_NOTICE | E_USER_NOTICE | E_WARNING | E_USER_WARNING | E_ERROR | E_PARSE;
-        $this->assertSame($expected, $errorHandler->getLoggedErrorTypes());
+        $errorHandler->logUncaught(\LogicException::class);
+        $errorHandler->logUncaught(\UnderflowException::class);
+        
+        $this->assertSame(
+            E_NOTICE | E_USER_NOTICE | E_WARNING | E_USER_WARNING | E_ERROR | E_PARSE,
+            $errorHandler->getLoggedErrorTypes()
+        );
+        
+        $this->assertSame(
+            [\LogicException::class, \UnderflowException::class],
+            $errorHandler->getLoggedExceptionClasses()
+        );
     }
+    
+    /**
+     * @expectedException InvalidArgumentException
+     */
+    public function testLogUncaughtInvalid()
+    {
+        $this->errorHandler->logUncaught([]);
+    }
+    
 
     public function testInitErrorHandler()
     {
@@ -230,6 +267,24 @@ class ErrorHandlerTest extends \PHPUnit_Framework_TestCase
         $this->assertSame($callback, $errorHandler->getChainedErrorHandler());
     }
     
+    public function testInitExceptionHandler()
+    {
+        $errorHandler = $this->errorHandler;
+
+        $callback = function() {};
+        
+        $errorHandler->expects($this->once())->method('setExceptionHandler')
+            ->with([$errorHandler, 'handleException'])
+            ->willReturn($callback);
+        
+        $errorHandler->logUncaught(\Exception::class);
+        
+        // Subsequent calls should have no effect
+        $errorHandler->logUncaught(\Exception::class);
+        
+        $this->assertSame($callback, $errorHandler->getChainedExceptionHandler());
+    }
+    
     public function testInitShutdownFunction()
     {
         $errorHandler = $this->errorHandler;
@@ -246,7 +301,7 @@ class ErrorHandlerTest extends \PHPUnit_Framework_TestCase
     }
     
 
-    public function errorHandlerProvider()
+    public function handleErrorProvider()
     {
         return [
             [0, E_WARNING, $this->never(), false],
@@ -270,7 +325,7 @@ class ErrorHandlerTest extends \PHPUnit_Framework_TestCase
     }
     
     /**
-     * @dataProvider errorHandlerProvider
+     * @dataProvider handleErrorProvider
      * 
      * @param int          $logUncaught
      * @param int          $code
@@ -292,7 +347,7 @@ class ErrorHandlerTest extends \PHPUnit_Framework_TestCase
     }
     
     /**
-     * @dataProvider errorHandlerProvider
+     * @dataProvider handleErrorProvider
      * 
      * @param int          $logUncaught          Ignored
      * @param int          $code
@@ -328,6 +383,78 @@ class ErrorHandlerTest extends \PHPUnit_Framework_TestCase
             $this->assertEquals(42, $exception->getLine());
         }
     }
+    
+    public function handleExceptionProvider()
+    {
+        return [
+            [[\Exception::class], new \Exception('no good'), $this->once()],
+            [[\Exception::class], new \LogicException('no good'), $this->once()],
+            [[\LogicException::class, \RuntimeException::class], new \Exception('no good'), $this->never()],
+            [[], new \Exception('no good'), $this->never()],
+            [[E_USER_ERROR], new \ErrorException('no good', null, E_USER_ERROR), $this->once()],
+            [[E_ERROR], new \ErrorException('no good', null, E_USER_ERROR), $this->never()],
+        ];
+    }
+    
+    /**
+     * @dataProvider handleExceptionProvider
+     * 
+     * @param array        $logUncaught
+     * @param \Exception   $exception
+     * @param InvokedCount $expectLog
+     */
+    public function testHandleException(array $logUncaught, \Exception $exception, InvokedCount $expectLog)
+    {
+        $class = get_class($exception);
+        
+        if ($exception instanceof \ErrorException) {
+            $message = 'Fatal error: no good';
+        } else {
+            $message = sprintf('Uncaught Exception %s: "%s"', $class, "no good");
+        }
+        
+        $logger = $this->createMock(LoggerInterface::class);
+        $logger->expects($expectLog)->method('log')
+            ->with($this->isType('string'), $this->stringStartsWith($message), $this->anything());
+
+        $errorHandler = $this->errorHandler;
+        
+        $errorHandler->setLogger($logger);
+        
+        foreach ($logUncaught as $exceptionClass) {
+            $errorHandler->logUncaught($exceptionClass);
+        }
+
+        $this->expectException($class);
+        $this->expectExceptionMessage('no good');
+        
+        $errorHandler->handleException($exception);
+    }
+    
+    public function testHandleExceptionChaining()
+    {
+        $exception = new \Exception('no good');
+        
+        $handler = $this->getMockBuilder(\stdClass::class)->setMethods(['__invoke'])->getMock();
+        $handler->expects($this->once())->method('__invoke')
+            ->with($exception);
+
+        $errorHandler = $this->errorHandler;
+        
+        $errorHandler->expects($this->exactly(2))->method('setExceptionHandler')
+            ->withConsecutive([[$errorHandler, 'handleException']], [null])
+            ->willReturnOnConsecutiveCalls($handler, [$errorHandler, 'handleException']);
+        
+        $errorHandler->expects($this->once())->method('setErrorHandler')->with(null);
+        
+        $errorHandler->logUncaught(\Exception::class);
+
+        $this->expectException(\Exception::class);
+        $this->expectExceptionMessage('no good');
+        
+        $errorHandler->handleException($exception);
+    }
+    
     
     public function shutdownFunctionProvider()
     {
@@ -376,7 +503,8 @@ class ErrorHandlerTest extends \PHPUnit_Framework_TestCase
         $this->assertAttributeEmpty('reservedMemory', $errorHandler);
     }
     
-    public function shutdownFunctionWithCallbackProvider()
+    
+    public function onFatalErrorProvider()
     {
         return [
             [true, $this->once()],
@@ -385,12 +513,48 @@ class ErrorHandlerTest extends \PHPUnit_Framework_TestCase
     }
     
     /**
-     * @dataProvider shutdownFunctionWithCallbackProvider
+     * @dataProvider onFatalErrorProvider
      * 
      * @param boolean      $clearOutput
      * @param InvokedCount $expectClear
      */
-    public function testShutdownFunctionWithCallback($clearOutput, InvokedCount $expectClear)
+    public function testOnFatalErrorFromHandleException($clearOutput, InvokedCount $expectClear)
+    {
+        $exception = new \Exception('no good');
+        
+        $handler = $this->getMockBuilder(\stdClass::class)->setMethods(['__invoke'])->getMock();
+        $handler->expects($this->once())->method('__invoke')
+            ->with($exception);
+
+        $errorHandler = $this->errorHandler;
+        
+        $errorHandler->expects($this->exactly(2))->method('setExceptionHandler')
+            ->withConsecutive([[$errorHandler, 'handleException']], [null])
+            ->willReturnOnConsecutiveCalls($handler, [$errorHandler, 'handleException']);
+        
+        $errorHandler->expects($expectClear)->method('clearOutputBuffer');
+        
+        $callback = $this->getMockBuilder(\stdClass::class)->setMethods(['__invoke'])->getMock();
+        $callback->expects($this->once())->method('__invoke')
+            ->with($exception);
+        
+        $errorHandler->onFatalError($callback, $clearOutput);
+        
+        $errorHandler->logUncaught(\Exception::class);
+
+        $this->expectException(\Exception::class);
+        $this->expectExceptionMessage('no good');
+        
+        $errorHandler->handleException($exception);
+    }
+    
+    /**
+     * @dataProvider onFatalErrorProvider
+     * 
+     * @param boolean      $clearOutput
+     * @param InvokedCount $expectClear
+     */
+    public function testOnFatalErrorFromShutdownFunction($clearOutput, InvokedCount $expectClear)
     {
         $errorHandler = $this->errorHandler;
         

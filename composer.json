@@ -1,6 +1,6 @@
 {
     "name": "jasny/error-handler",
-    "description": "Error handler as PSR-7 compatible middleware",
+    "description": "Error handler with PSR-7 support",
     "keywords": ["error handler", "exception handler", "middleware"],
     "license": "MIT",
     "authors": [

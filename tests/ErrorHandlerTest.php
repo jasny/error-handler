@@ -14,6 +14,8 @@ use PHPUnit_Framework_MockObject_Matcher_InvokedCount as InvokedCount;
 
 /**
  * @covers Jasny\ErrorHandler
+ * @covers Jasny\ErrorHandler\ErrorCodes
+ * @covers Jasny\ErrorHandler\Logging
  */
 class ErrorHandlerTest extends \PHPUnit_Framework_TestCase
 {
@@ -25,113 +27,31 @@ class ErrorHandlerTest extends \PHPUnit_Framework_TestCase
     public function setUp()
     {
         $this->errorHandler = $this->getMockBuilder(ErrorHandler::class)
-            ->setMethods(['errorReporting', 'errorGetLast', 'setErrorHandler', 'registerShutdownFunction',
-                'clearOutputBuffer'])
+            ->setMethods(['errorReporting', 'errorGetLast', 'setErrorHandler', 'setExceptionHandler',
+                'registerShutdownFunction', 'clearOutputBuffer'])
             ->getMock();
     }
     
-    /**
-     * Test invoke with invalid 'next' param
-     * 
-     * @expectedException \InvalidArgumentException
-     */
-    public function testInvokeInvalidNext()
+    
+    public function testSetError()
     {
-        $request = $this->createMock(ServerRequestInterface::class);
-        $response = $this->createMock(ResponseInterface::class);
+        $exception = new \Exception();
         
-        $errorHandler = $this->errorHandler;
-        
-        $errorHandler($request, $response, 'not callable');
-    }
-
-    /**
-     * Test case when there is no error
-     */
-    public function testInvokeNoError()
-    {
-        $request = $this->createMock(ServerRequestInterface::class);
-        $response = $this->createMock(ResponseInterface::class);
-        $finalResponse = $this->createMock(ResponseInterface::class);
-
-        $next = $this->getMockBuilder(\stdClass::class)->setMethods(['__invoke'])->getMock();
-        $next->expects($this->once())->method('__invoke')
-            ->with($request, $response)
-            ->willReturn($finalResponse);
-        
-        $errorHandler = $this->errorHandler;
-
-        $result = $errorHandler($request, $response, $next);        
-
-        $this->assertSame($finalResponse, $result);
+        $this->errorHandler->setError($exception);
+        $this->assertSame($exception, $this->errorHandler->getError());
     }
     
     /**
-     * Test that Exception in 'next' callback is caught
+     * @expectedException PHPUnit_Framework_Error_Warning
      */
-    public function testInvokeCatchException()
+    public function testSetErrorWithInvalid()
     {
-        $request = $this->createMock(ServerRequestInterface::class);
-        $response = $this->createMock(ResponseInterface::class);
-        $errorResponse = $this->createMock(ResponseInterface::class);
-        $stream = $this->createMock(StreamInterface::class);
+        @$this->errorHandler->setError('foo');
+        $this->assertNull($this->errorHandler->getError());
         
-        $exception = $this->createMock(\Exception::class);
-
-        $stream->expects($this->once())->method('write')->with('Unexpected error');
-        $response->expects($this->once())->method('withStatus')->with(500)->willReturn($errorResponse);
-
-        $errorResponse->expects($this->once())->method('getBody')->willReturn($stream);
-        
-        $next = $this->getMockBuilder(\stdClass::class)->setMethods(['__invoke'])->getMock();
-        $next->expects($this->once())->method('__invoke')
-            ->with($request, $response)
-            ->willThrowException($exception);
-        
-        $errorHandler = $this->errorHandler;
-        
-        $result = $errorHandler($request, $response, $next);
-
-        $this->assertSame($errorResponse, $result);
-        $this->assertSame($exception, $errorHandler->getError());
+        $this->errorHandler->setError('foo');
     }
-    
-    /**
-     * Test that an error in 'next' callback is caught
-     */
-    public function testInvokeCatchError()
-    {
-        if (!class_exists('Error')) {
-            $this->markTestSkipped(PHP_VERSION . " doesn't throw errors yet");
-        }
-        
-        $request = $this->createMock(ServerRequestInterface::class);
-        $response = $this->createMock(ResponseInterface::class);
-        $errorResponse = $this->createMock(ResponseInterface::class);
-        $stream = $this->createMock(StreamInterface::class);
-        
-        $stream->expects($this->once())->method('write')->with('Unexpected error');
-        $response->expects($this->once())->method('withStatus')->with(500)->willReturn($errorResponse);
 
-        $errorResponse->expects($this->once())->method('getBody')->willReturn($stream);
-        
-        $next = $this->getMockBuilder(\stdClass::class)->setMethods(['__invoke'])->getMock();
-        $next->expects($this->once())->method('__invoke')
-            ->with($request, $response)
-            ->willReturnCallback(function() {
-                \this_function_does_not_exist();
-            });
-        
-        $errorHandler = $this->errorHandler;
-        
-        $result = $errorHandler($request, $response, $next);
-
-        $this->assertSame($errorResponse, $result);
-        
-        $error = $errorHandler->getError();
-        $this->assertEquals("Call to undefined function this_function_does_not_exist()", $error->getMessage());
-    }
-    
     
     public function testSetLogger()
     {
@@ -141,36 +61,6 @@ class ErrorHandlerTest extends \PHPUnit_Framework_TestCase
         $errorHandler->setLogger($logger);
         
         $this->assertSame($logger, $errorHandler->getLogger());
-    }
-    
-    
-    public function testInvokeLog()
-    {
-        $request = $this->createMock(ServerRequestInterface::class);
-        $response = $this->createMock(ResponseInterface::class);
-        $stream = $this->createMock(StreamInterface::class);
-        
-        $response->method('withStatus')->willReturnSelf();
-        $response->method('getBody')->willReturn($stream);
-        
-        $exception = $this->createMock(\Exception::class);
-        
-        $message = $this->stringStartsWith('Uncaught Exception ' . get_class($exception));
-        $context = ['exception' => $exception];
-        
-        $logger = $this->createMock(LoggerInterface::class);
-        $logger->expects($this->once())->method('log')
-            ->with(LogLevel::ERROR, $message, $context);
-        
-        $errorHandler = $this->errorHandler;
-        $errorHandler->setLogger($logger);
-        
-        $next = $this->getMockBuilder(\stdClass::class)->setMethods(['__invoke'])->getMock();
-        $next->expects($this->once())->method('__invoke')
-            ->with($request, $response)
-            ->willThrowException($exception);
-        
-        $errorHandler($request, $response, $next);
     }
     
     public function errorProvider()
@@ -271,7 +161,7 @@ class ErrorHandlerTest extends \PHPUnit_Framework_TestCase
     }
     
     
-    public function alsoLogProvider()
+    public function logUncaughtProvider()
     {
         return [
             [E_ALL, $this->once(), $this->once()],
@@ -281,19 +171,19 @@ class ErrorHandlerTest extends \PHPUnit_Framework_TestCase
             [E_DEPRECATED | E_USER_DEPRECATED, $this->once(), $this->never()],
             [E_PARSE, $this->never(), $this->once()],
             [E_ERROR, $this->never(), $this->once()],
-            [E_ERROR | E_USER_ERROR, $this->never(), $this->once()],
-            [E_RECOVERABLE_ERROR | E_USER_ERROR, $this->never(), $this->never()]
+            [E_ERROR | E_USER_ERROR, $this->once(), $this->once()],
+            [E_RECOVERABLE_ERROR | E_USER_ERROR, $this->once(), $this->never()]
         ];
     }
     
     /**
-     * @dataProvider alsoLogProvider
+     * @dataProvider logUncaughtProvider
      * 
      * @param int          $code
      * @param InvokedCount $expectErrorHandler
      * @param InvokedCount $expectShutdownFunction
      */
-    public function testAlsoLog($code, InvokedCount $expectErrorHandler, InvokedCount $expectShutdownFunction)
+    public function testLogUncaught($code, InvokedCount $expectErrorHandler, InvokedCount $expectShutdownFunction)
     {
         $errorHandler = $this->errorHandler;
         
@@ -304,19 +194,19 @@ class ErrorHandlerTest extends \PHPUnit_Framework_TestCase
         $errorHandler->expects($expectShutdownFunction)->method('registerShutdownFunction')
             ->with([$errorHandler, 'shutdownFunction']);
         
-        $errorHandler->alsoLog($code);
+        $errorHandler->logUncaught($code);
         
         $this->assertSame($code, $errorHandler->getLoggedErrorTypes());
     }
     
-    public function testAlsoLogCombine()
+    public function testLogUncaughtCombine()
     {
         $errorHandler = $this->errorHandler;
         
-        $errorHandler->alsoLog(E_NOTICE | E_USER_NOTICE);
-        $errorHandler->alsoLog(E_WARNING | E_USER_WARNING);
-        $errorHandler->alsoLog(E_ERROR);
-        $errorHandler->alsoLog(E_PARSE);
+        $errorHandler->logUncaught(E_NOTICE | E_USER_NOTICE);
+        $errorHandler->logUncaught(E_WARNING | E_USER_WARNING);
+        $errorHandler->logUncaught(E_ERROR);
+        $errorHandler->logUncaught(E_PARSE);
         
         $expected = E_NOTICE | E_USER_NOTICE | E_WARNING | E_USER_WARNING | E_ERROR | E_PARSE;
         $this->assertSame($expected, $errorHandler->getLoggedErrorTypes());
@@ -332,10 +222,10 @@ class ErrorHandlerTest extends \PHPUnit_Framework_TestCase
             ->with([$errorHandler, 'handleError'])
             ->willReturn($callback);
         
-        $errorHandler->alsoLog(E_WARNING);
+        $errorHandler->logUncaught(E_WARNING);
         
         // Subsequent calls should have no effect
-        $errorHandler->alsoLog(E_WARNING);
+        $errorHandler->logUncaught(E_WARNING);
         
         $this->assertSame($callback, $errorHandler->getChainedErrorHandler());
     }
@@ -347,10 +237,10 @@ class ErrorHandlerTest extends \PHPUnit_Framework_TestCase
         $errorHandler->expects($this->once())->method('registerShutdownFunction')
             ->with([$errorHandler, 'shutdownFunction']);
         
-        $errorHandler->alsoLog(E_PARSE);
+        $errorHandler->logUncaught(E_PARSE);
         
         // Subsequent calls should have no effect
-        $errorHandler->alsoLog(E_PARSE);
+        $errorHandler->logUncaught(E_PARSE);
         
         $this->assertAttributeNotEmpty('reservedMemory', $errorHandler);
     }
@@ -382,11 +272,11 @@ class ErrorHandlerTest extends \PHPUnit_Framework_TestCase
     /**
      * @dataProvider errorHandlerProvider
      * 
-     * @param int          $alsoLog
+     * @param int          $logUncaught
      * @param int          $code
      * @param InvokedCount $expectLog
      */
-    public function testHandleErrorWithLogging($alsoLog, $code, InvokedCount $expectLog)
+    public function testHandleErrorWithLogging($logUncaught, $code, InvokedCount $expectLog)
     {
         $logger = $this->createMock(LoggerInterface::class);
         $logger->expects($expectLog)->method('log')
@@ -396,7 +286,7 @@ class ErrorHandlerTest extends \PHPUnit_Framework_TestCase
         $errorHandler->expects($this->once())->method('errorReporting')->willReturn(E_ALL | E_STRICT);
         
         $errorHandler->setLogger($logger);
-        $errorHandler->alsoLog($alsoLog);
+        $errorHandler->logUncaught($logUncaught);
         
         $this->errorHandler->handleError($code, 'no good', 'foo.php', 42, []);
     }
@@ -404,12 +294,12 @@ class ErrorHandlerTest extends \PHPUnit_Framework_TestCase
     /**
      * @dataProvider errorHandlerProvider
      * 
-     * @param int          $alsoLog          Ignored
+     * @param int          $logUncaught          Ignored
      * @param int          $code
      * @param InvokedCount $expectLog       Ignored
      * @param boolean      $expectException
      */
-    public function testHandleErrorWithConvertError($alsoLog, $code, InvokedCount $expectLog, $expectException)
+    public function testHandleErrorWithConvertError($logUncaught, $code, InvokedCount $expectLog, $expectException)
     {
         $logger = $this->createMock(LoggerInterface::class);
         $logger->expects($this->never())->method('log');
@@ -454,11 +344,11 @@ class ErrorHandlerTest extends \PHPUnit_Framework_TestCase
     /**
      * @dataProvider shutdownFunctionProvider
      * 
-     * @param int          $alsoLog         Ignored
+     * @param int          $logUncaught         Ignored
      * @param int          $code
      * @param InvokedCount $expectLog       Ignored
      */
-    public function testShutdownFunction($alsoLog, $code, InvokedCount $expectLog)
+    public function testShutdownFunction($logUncaught, $code, InvokedCount $expectLog)
     {
         $logger = $this->createMock(LoggerInterface::class);
         $logger->expects($expectLog)->method('log')
@@ -477,7 +367,7 @@ class ErrorHandlerTest extends \PHPUnit_Framework_TestCase
             ->willReturn($code ? $error : null);
         
         $errorHandler->setLogger($logger);
-        $errorHandler->alsoLog($alsoLog);
+        $errorHandler->logUncaught($logUncaught);
         
         $this->assertAttributeNotEmpty('reservedMemory', $errorHandler);
         

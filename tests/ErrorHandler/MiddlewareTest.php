@@ -2,13 +2,43 @@
 
 namespace Jasny\ErrorHandler;
 
+use Jasny\ErrorHandler;
+use Jasny\ErrorHandler\Middleware;
+
+use Psr\Log\LoggerInterface;
+use Psr\Log\LogLevel;
+
+use Psr\Http\Message\ServerRequestInterface;
+use Psr\Http\Message\ResponseInterface;
+use Psr\Http\Message\StreamInterface;
+
+use PHPUnit_Framework_MockObject_MockObject as MockObject;
+
 /**
- * Description of MiddlewareTest
- *
- * @author arnold
+ * @covers Jasny\ErrorHandler\Middleware
  */
-class MiddlewareTest
+class MiddlewareTest extends \PHPUnit_Framework_TestCase
 {
+    /**
+     * @var ErrorHandler|MockObject
+     */
+    protected $errorHandler;
+    
+    /**
+     * @var Middleware
+     */
+    protected $middleware;
+    
+    public function setUp()
+    {
+        $this->errorHandler = $this->getMockBuilder(ErrorHandler::class)
+            ->setMethods(['errorReporting', 'errorGetLast', 'setErrorHandler', 'setExceptionHandler',
+                'registerShutdownFunction', 'clearOutputBuffer'])
+            ->getMock();
+        
+        $this->middleware = new Middleware($this->errorHandler);
+    }
+    
     
     /**
      * Test invoke with invalid 'next' param
@@ -20,9 +50,9 @@ class MiddlewareTest
         $request = $this->createMock(ServerRequestInterface::class);
         $response = $this->createMock(ResponseInterface::class);
         
-        $errorHandler = $this->errorHandler;
+        $middleware = $this->middleware;
         
-        $errorHandler($request, $response, 'not callable');
+        $middleware($request, $response, 'not callable');
     }
 
     /**
@@ -39,9 +69,9 @@ class MiddlewareTest
             ->with($request, $response)
             ->willReturn($finalResponse);
         
-        $errorHandler = $this->errorHandler;
+        $middleware = $this->middleware;
 
-        $result = $errorHandler($request, $response, $next);        
+        $result = $middleware($request, $response, $next);        
 
         $this->assertSame($finalResponse, $result);
     }
@@ -70,7 +100,9 @@ class MiddlewareTest
         
         $errorHandler = $this->errorHandler;
         
-        $result = $errorHandler($request, $response, $next);
+        $middleware = $this->middleware;
+        
+        $result = $middleware($request, $response, $next);
 
         $this->assertSame($errorResponse, $result);
         $this->assertSame($exception, $errorHandler->getError());
@@ -103,8 +135,9 @@ class MiddlewareTest
             });
         
         $errorHandler = $this->errorHandler;
+        $middleware = $this->middleware;
         
-        $result = $errorHandler($request, $response, $next);
+        $result = $middleware($request, $response, $next);
 
         $this->assertSame($errorResponse, $result);
         
@@ -133,11 +166,13 @@ class MiddlewareTest
         $errorHandler = $this->errorHandler;
         $errorHandler->setLogger($logger);
         
+        $middleware = $this->middleware;
+        
         $next = $this->getMockBuilder(\stdClass::class)->setMethods(['__invoke'])->getMock();
         $next->expects($this->once())->method('__invoke')
             ->with($request, $response)
             ->willThrowException($exception);
         
-        $errorHandler($request, $response, $next);
+        $middleware($request, $response, $next);
     }
 }

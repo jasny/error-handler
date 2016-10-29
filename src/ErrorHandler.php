@@ -72,7 +72,7 @@ class ErrorHandler implements LoggerAwareInterface
      */
     public function setError($error)
     {
-        if (!$error instanceof \Error && !$error instanceof \Exception) {
+        if (isset($error) && !$error instanceof \Error && !$error instanceof \Exception) {
             $type = (is_object($error) ? get_class($error) . ' ' : '') . gettype($error);
             trigger_error("Excpeted an Error or Exception, got a $type", E_USER_WARNING);
             return;

@@ -3,9 +3,6 @@
 namespace Jasny;
 
 use Jasny\ErrorHandler;
-use Psr\Http\Message\ServerRequestInterface;
-use Psr\Http\Message\ResponseInterface;
-use Psr\Http\Message\StreamInterface;
 use Psr\Log\LoggerInterface;
 use Psr\Log\LogLevel;
 
@@ -39,6 +36,14 @@ class ErrorHandlerTest extends \PHPUnit_Framework_TestCase
         
         $this->errorHandler->setError($exception);
         $this->assertSame($exception, $this->errorHandler->getError());
+    }
+
+    public function testAsMiddleware()
+    {
+        $middleware = $this->errorHandler->asMiddleware();
+        
+        $this->assertInstanceOf(ErrorHandler\Middleware::class, $middleware);
+        $this->assertAttributeSame($this->errorHandler, 'errorHandler', $middleware);
     }
     
     /**

@@ -2,23 +2,19 @@
 
 namespace Jasny;
 
-use Psr\Http\Message\ServerRequestInterface;
-use Psr\Http\Message\ResponseInterface;
-use Psr\Log\LoggerInterface;
+use Jasny\ErrorHandler\ErrorCodes;
+use Jasny\ErrorHandler\Logging;
+use Jasny\ErrorHandler\Middleware;
 use Psr\Log\LoggerAwareInterface;
-use Psr\Log\LogLevel;
-use Psr\Log\NullLogger;
 
 /**
  * Handle error in following middlewares/app actions
  */
 class ErrorHandler implements LoggerAwareInterface
 {
-    /**
-     * @var LoggerInterface
-     */
-    protected $logger;
-
+    use Logging;
+    use ErrorCodes;
+    
     /**
      * @var \Exception|\Error
      */
@@ -28,6 +24,11 @@ class ErrorHandler implements LoggerAwareInterface
      * @var callable|false
      */
     protected $chainedErrorHandler;
+
+    /**
+     * @var callable|false
+     */
+    protected $chainedExceptionHandler;
 
     /**
      * @var boolean
@@ -47,6 +48,12 @@ class ErrorHandler implements LoggerAwareInterface
     protected $logErrorTypes = 0;
     
     /**
+     * Log the following exception classes (and subclasses)
+     * @var array
+     */
+    protected $logExceptionClasses = [];
+    
+    /**
      * A string which reserves memory that can be used to log the error in case of an out of memory fatal error
      * @var string
      */
@@ -59,89 +66,20 @@ class ErrorHandler implements LoggerAwareInterface
 
     
     /**
-     * Set the logger for logging errors
+     * Set the caught error
      * 
-     * @param LoggerInterface $logger
+     * @param \Throwable|\Exception|\Error
      */
-    public function setLogger(LoggerInterface $logger)
+    public function setError($error)
     {
-        $this->logger = $logger;
-    }
-    
-    /**
-     * Set the logger for logging errors
-     * 
-     * @return LoggerInterface
-     */
-    public function getLogger()
-    {
-        if (!isset($this->logger)) {
-            $this->logger = new NullLogger();
+        if (isset($error) && !$error instanceof \Error && !$error instanceof \Exception) {
+            $type = (is_object($error) ? get_class($error) . ' ' : '') . gettype($error);
+            trigger_error("Excpeted an Error or Exception, got a $type", E_USER_WARNING);
+            return;
         }
         
-        return $this->logger;
+        $this->error = $error;
     }
-    
-    /**
-     * Log an error or exception
-     * 
-     * @param \Exception|\Error $error
-     */
-    public function log($error)
-    {
-        if ($error instanceof \Error || $error instanceof \ErrorException) {
-            return $this->logError($error);
-        }
-        
-        if ($error instanceof \Exception) {
-            return $this->logException($error);
-        }
-        
-        $message = "Unable to log a " . (is_object($error) ? get_class($error) . ' ' : '') . gettype($error);
-        $this->getLogger()->log(LogLevel::WARNING, $message);
-    }
-    
-    /**
-     * Log an error
-     * 
-     * @param \Error|\ErrorException $error
-     */
-    protected function logError($error)
-    {
-        $code = $error instanceof \ErrorException ? $error->getSeverity() : E_ERROR;
-        $level = $this->getLogLevel($code);
-        
-        $message = sprintf('%s: %s at %s line %s', $this->codeToString($code), $error->getMessage(),
-            $error->getFile(), $error->getLine());
-
-        $context = [
-            'error' => $error,
-            'code' => $code,
-            'message' => $error->getMessage(),
-            'file' => $error->getFile(),
-            'line' => $error->getLine()
-        ];
-
-        $this->getLogger()->log($level, $message, $context);
-    }
-    
-    /**
-     * Log an exception
-     * 
-     * @param \Exception $error
-     */
-    protected function logException(\Exception $error)
-    {
-        $level = $this->getLogLevel();
-        
-        $message = sprintf('Uncaught Exception %s: "%s" at %s line %s', get_class($error), $error->getMessage(),
-            $error->getFile(), $error->getLine());
-        
-        $context = ['exception' => $error];
-
-        $this->getLogger()->log($level, $message, $context);
-    }
-    
     
     /**
      * Get the caught error
@@ -152,6 +90,7 @@ class ErrorHandler implements LoggerAwareInterface
     {
         return $this->error;
     }
+    
     
     /**
      * Get the error handler that has been replaced.
@@ -164,6 +103,16 @@ class ErrorHandler implements LoggerAwareInterface
     }
     
     /**
+     * Get the error handler that has been replaced.
+     * 
+     * @return callable|false|null
+     */
+    public function getChainedExceptionHandler()
+    {
+        return $this->chainedExceptionHandler;
+    }
+    
+    /**
      * Get the types of errors that will be logged
      * 
      * @return int  Binary set of E_* constants
@@ -173,51 +122,13 @@ class ErrorHandler implements LoggerAwareInterface
         return $this->logErrorTypes;
     }
     
-    
     /**
-     * Run middleware action
-     *
-     * @param ServerRequestInterface $request
-     * @param ResponseInterface      $response
-     * @param callback               $next
-     * @return ResponseInterface
+     * Get a list of Exception and other Throwable classes that will be logged
+     * @return array
      */
-    public function __invoke(ServerRequestInterface $request, ResponseInterface $response, $next)
+    public function getLoggedExceptionClasses()
     {
-        if (!is_callable($next)) {
-            throw new \InvalidArgumentException("'next' should be a callback");            
-        }
-
-        try {
-            $this->error = null;
-            $nextResponse = $next($request, $response);
-        } catch (\Error $e) {
-            $this->error = $e;
-        } catch (\Exception $e) {
-            $this->error = $e;
-        }
-        
-        if ($this->error) {
-            $this->log($this->error);
-            $nextResponse = $this->errorResponse($request, $response);
-        }
-        
-        return $nextResponse;
-    }
-
-    /**
-     * Handle caught error
-     *
-     * @param ServerRequestInterface $request
-     * @param ResponseInterface      $response
-     * @return ResponseInterface
-     */
-    protected function errorResponse(ServerRequestInterface $request, ResponseInterface $response)
-    {
-        $errorResponse = $response->withStatus(500);
-        $errorResponse->getBody()->write('Unexpected error');
-
-        return $errorResponse;
+        return $this->logExceptionClasses;
     }
     
     
@@ -231,25 +142,55 @@ class ErrorHandler implements LoggerAwareInterface
     }
     
     /**
-     * Also log these types of errors in addition to caught errors and exceptions
+     * Log these types of errors or exceptions
      * 
-     * @param int $errorTypes  E_* contants as binary set
+     * @param int|string $type  E_* contants as binary set OR Exception class name
      */
-    public function alsoLog($errorTypes)
+    public function logUncaught($type)
     {
-        $this->logErrorTypes |= $errorTypes;
-        
-        $nonFatal = E_WARNING | E_NOTICE | E_USER_WARNING | E_USER_NOTICE | E_STRICT | E_DEPRECATED | E_USER_DEPRECATED;
+        if (is_int($type)) {
+            $this->logUncaughtErrors($type);
+        } elseif (is_string($type)) {
+            $this->logUncaughtException($type);
+        } else {
+            throw new \InvalidArgumentException("Type should be an error code (int) or Exception class (string)");
+        }
+    }
+    
+    /**
+     * Log these types of errors or exceptions
+     * 
+     * @param string $class  Exception class name
+     */
+    protected function logUncaughtException($class)
+    {
+        if (!in_array($class, $this->logExceptionClasses)) {
+            $this->logExceptionClasses[] = $class;
+        }
+
+        $this->initExceptionHandler();
+    }
+    
+    /**
+     * Log these types of errors or exceptions
+     * 
+     * @param int $type  E_* contants as binary set
+     */
+    protected function logUncaughtErrors($type)
+    {
+        $this->logErrorTypes |= $type;
+
         $unhandled = E_ERROR | E_PARSE | E_CORE_ERROR | E_COMPILE_ERROR;
-            
-        if ($this->logErrorTypes & $nonFatal) {
+
+        if ($type & ~$unhandled) {
             $this->initErrorHandler();
         }
-        
-        if ($this->logErrorTypes & $unhandled) {
+
+        if ($type & $unhandled) {
             $this->initShutdownFunction();
         }
     }
+
     
     /**
      * Set a callback for when the script dies because of a fatal, non-catchable error.
@@ -269,6 +210,15 @@ class ErrorHandler implements LoggerAwareInterface
             };
         }
     }
+    
+    /**
+     * Use this error handler as middleware
+     */
+    public function asMiddleware()
+    {
+        return new Middleware($this);
+    }
+    
     
     /**
      * Use the global error handler
@@ -309,6 +259,56 @@ class ErrorHandler implements LoggerAwareInterface
             : false;
     }
 
+    
+    /**
+     * Use the global error handler
+     */
+    protected function initExceptionHandler()
+    {
+        if (!isset($this->chainedExceptionHandler)) {
+            $this->chainedExceptionHandler = $this->setExceptionHandler([$this, 'handleException']) ?: false;
+        }
+    }
+    
+    /**
+     * Uncaught exception handler
+     * @ignore
+     * 
+     * @param \Exception|\Error $exception
+     */
+    public function handleException($exception)
+    {
+        $this->setExceptionHandler(null);
+        $this->setErrorHandler(null);
+        
+        $isInstanceOf = array_map(function($class) use ($exception) {
+            return is_a($exception, $class);
+        }, $this->logExceptionClasses);
+        
+        if ($exception instanceof \Error || $exception instanceof \ErrorException) {
+            $type = $exception instanceof \Error ? $exception->getCode() : $exception->getSeverity();
+            $shouldLog = $this->logErrorTypes & $type;
+        } else {
+            $shouldLog = array_sum($isInstanceOf) > 0;
+        }
+        
+        if ($shouldLog) {
+            $this->log($exception);
+        }
+        
+        if ($this->onFatalError) {
+            call_user_func($this->onFatalError, $exception);
+        }
+        
+        if ($this->chainedExceptionHandler) {
+            call_user_func($this->chainedExceptionHandler, $exception);
+        }
+        
+        
+        throw $exception; // This is now handled by the default exception and error handler
+    }
+
+    
     /**
      * Reserve memory for shutdown function in case of out of memory
      */
@@ -356,81 +356,7 @@ class ErrorHandler implements LoggerAwareInterface
         }
     }
     
-    
-    /**
-     * Get the log level for an error code
-     * 
-     * @param int $code  E_* error code
-     * @return string
-     */
-    protected function getLogLevel($code = null)
-    {
-        switch ($code) {
-            case E_STRICT:
-            case E_DEPRECATED:
-            case E_USER_DEPRECATED:
-                return LogLevel::INFO;
-            
-            case E_NOTICE:
-            case E_USER_NOTICE:
-                return LogLevel::NOTICE;
-                
-            case E_WARNING:
-            case E_CORE_WARNING:
-            case E_COMPILE_WARNING:
-            case E_USER_WARNING:
-                return LogLevel::WARNING;
-            
-            case E_PARSE:
-            case E_CORE_ERROR:
-            case E_COMPILE_ERROR:
-                return LogLevel::CRITICAL;
-            
-            default:
-                return LogLevel::ERROR;
-        }
-    }
-    
-    /**
-     * Turn an error code into a string
-     * 
-     * @param int $code
-     * @return string
-     */
-    protected function codeToString($code)
-    {
-        switch ($code) {
-            case E_ERROR:
-            case E_USER_ERROR:
-            case E_RECOVERABLE_ERROR:
-                return 'Fatal error';
-            case E_WARNING:
-            case E_USER_WARNING:
-                return 'Warning';
-            case E_PARSE:
-                return 'Parse error';
-            case E_NOTICE:
-            case E_USER_NOTICE:
-                return 'Notice';
-            case E_CORE_ERROR:
-                return 'Core error';
-            case E_CORE_WARNING:
-                return 'Core warning';
-            case E_COMPILE_ERROR:
-                return 'Compile error';
-            case E_COMPILE_WARNING:
-                return 'Compile warning';
-            case E_STRICT:
-                return 'Strict standards';
-            case E_DEPRECATED:
-            case E_USER_DEPRECATED:
-                return 'Deprecated';
-        }
-        
-        return 'Unknown error';
-    }
-    
-    
+   
     /**
      * Clear and destroy all the output buffers
      * @codeCoverageIgnore
@@ -475,6 +401,18 @@ class ErrorHandler implements LoggerAwareInterface
     protected function setErrorHandler($callback, $error_types = E_ALL)
     {
         return set_error_handler($callback, $error_types);
+    }
+    
+    /**
+     * Wrapper method for `set_exception_handler`
+     * @codeCoverageIgnore
+     * 
+     * @param callable $callback
+     * @return callable|null
+     */
+    protected function setExceptionHandler($callback)
+    {
+        return set_exception_handler($callback);
     }
     
     /**

@@ -89,6 +89,10 @@ class MiddlewareTest extends \PHPUnit_Framework_TestCase
         $exception = $this->createMock(\Exception::class);
 
         $stream->expects($this->once())->method('write')->with('Unexpected error');
+
+        $request->expects($this->once())->method('getProtocolVersion')->willReturn('1.1');
+
+        $response->expects($this->once())->method('withProtocolVersion')->with('1.1')->willReturnSelf();
         $response->expects($this->once())->method('withStatus')->with(500)->willReturn($errorResponse);
 
         $errorResponse->expects($this->once())->method('getBody')->willReturn($stream);
@@ -123,6 +127,10 @@ class MiddlewareTest extends \PHPUnit_Framework_TestCase
         $stream = $this->createMock(StreamInterface::class);
         
         $stream->expects($this->once())->method('write')->with('Unexpected error');
+
+        $request->expects($this->once())->method('getProtocolVersion')->willReturn('1.1');
+
+        $response->expects($this->once())->method('withProtocolVersion')->with('1.1')->willReturnSelf();
         $response->expects($this->once())->method('withStatus')->with(500)->willReturn($errorResponse);
 
         $errorResponse->expects($this->once())->method('getBody')->willReturn($stream);
@@ -151,6 +159,7 @@ class MiddlewareTest extends \PHPUnit_Framework_TestCase
         $response = $this->createMock(ResponseInterface::class);
         $stream = $this->createMock(StreamInterface::class);
         
+        $response->method('withProtocolVersion')->willReturnSelf();
         $response->method('withStatus')->willReturnSelf();
         $response->method('getBody')->willReturn($stream);
         

@@ -68,9 +68,10 @@ class Middleware
      */
     protected function errorResponse(ServerRequestInterface $request, ResponseInterface $response)
     {
-        $errorResponse = $response->withStatus(500);
+        $errorResponse = $response->withProtocolVersion($request->getProtocolVersion())->withStatus(500);
         $errorResponse->getBody()->write('Unexpected error');
 
         return $errorResponse;
     }
 }
+

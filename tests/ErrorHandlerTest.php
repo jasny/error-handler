@@ -11,8 +11,12 @@ use PHPUnit_Framework_MockObject_Matcher_InvokedCount as InvokedCount;
 
 /**
  * @covers Jasny\ErrorHandler
- * @covers Jasny\ErrorHandler\ErrorCodes
  * @covers Jasny\ErrorHandler\Logging
+ * @covers Jasny\ErrorHandler\ErrorCodes
+ * @covers Jasny\ErrorHandler\HandleUncaughtError
+ * @covers Jasny\ErrorHandler\HandleShutdownError
+ * @covers Jasny\ErrorHandler\HandleUncaughtException
+ * @covers Jasny\ErrorHandler\FunctionWrapper
  */
 class ErrorHandlerTest extends \PHPUnit_Framework_TestCase
 {

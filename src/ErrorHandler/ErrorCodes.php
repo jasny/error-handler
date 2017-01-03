@@ -82,3 +82,4 @@ trait ErrorCodes
         return 'Unknown error';
     }
 }
+

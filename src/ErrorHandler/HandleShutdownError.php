@@ -47,6 +47,13 @@ trait HandleShutdownError
      */
     abstract public function log($error);
 
+    /**
+     * Get the types of errors that will be logged
+     * 
+     * @return int  Binary set of E_* constants
+     */
+    abstract public function getLoggedErrorTypes();
+
 
     /**
      * Reserve memory for shutdown function in case of out of memory
@@ -86,7 +93,7 @@ trait HandleShutdownError
         
         $error = new \ErrorException($err['message'], 0, $err['type'], $err['file'], $err['line']);
         
-        if ($err['type'] & $this->logErrorTypes) {
+        if ($err['type'] & $this->getLoggedErrorTypes()) {
             $this->log($error);
         }
         

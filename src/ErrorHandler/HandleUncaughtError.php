@@ -141,7 +141,7 @@ trait HandleUncaughtError
                 throw $error;
             }
 
-            if ($this->logErrorTypes & $type) {
+            if ($this->getLoggedErrorTypes() & $type) {
                 $this->log($error);
             }
         }

@@ -44,6 +44,13 @@ trait HandleUncaughtException
      */
     abstract public function log($error);
 
+    /**
+     * Get the types of errors that will be logged
+     * 
+     * @return int  Binary set of E_* constants
+     */
+    abstract public function getLoggedErrorTypes();
+
 
     /**
      * Get the error handler that has been replaced.
@@ -107,7 +114,7 @@ trait HandleUncaughtException
         
         if ($exception instanceof \Error || $exception instanceof \ErrorException) {
             $type = $exception instanceof \Error ? $exception->getCode() : $exception->getSeverity();
-            $shouldLog = $this->logErrorTypes & $type;
+            $shouldLog = $this->getLoggedErrorTypes() & $type;
         } else {
             $shouldLog = array_sum($isInstanceOf) > 0;
         }

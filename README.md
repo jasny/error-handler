@@ -4,6 +4,9 @@ Jasny Error Handler
 [![Build Status](https://secure.travis-ci.org/jasny/error-handler.png?branch=master)](http://travis-ci.org/jasny/error-handler)
 [![Scrutinizer Code Quality](https://scrutinizer-ci.com/g/jasny/error-handler/badges/quality-score.png?b=master)](https://scrutinizer-ci.com/g/jasny/error-handler/?branch=master)
 [![Code Coverage](https://scrutinizer-ci.com/g/jasny/error-handler/badges/coverage.png?b=master)](https://scrutinizer-ci.com/g/jasny/error-handler/?branch=master)
+[![SensioLabsInsight](https://insight.sensiolabs.com/projects/e0404b74-7a3e-41c3-a382-6ba12cd63560/mini.png)](https://insight.sensiolabs.com/projects/e0404b74-7a3e-41c3-a382-6ba12cd63560)
+[![Packagist Stable Version](https://img.shields.io/packagist/v/jasny/error-handler.svg)](https://packagist.org/packages/jasny/error-handler)
+[![Packagist License](https://img.shields.io/packagist/l/jasny/error-handler.svg)](https://packagist.org/packages/jasny/error-handler)
 
 Error handler with PSR-7 support.
 
@@ -31,8 +34,8 @@ middleware.
 By default the error handler with only catch [Throwables](http://php.net/manual/en/class.throwable.php) and not set the
 [php error handler](http://php.net/set_error_handler).
 
-To log these errors, set the logger using the `setLogger()` method. You can log with any
-[PSR-3 compatible logger](http://www.php-fig.org/psr/psr-3/) like [Monolog](https://github.com/Seldaek/monolog).
+To log errors, set the logger using `setLogger()`. You can log with any [PSR-3 compatible
+logger](http://www.php-fig.org/psr/psr-3/) like [Monolog](https://github.com/Seldaek/monolog).
 
 The `logUncaught()` method will set the error handler, so warnings and notices can be logged. It may also [register a
 shutdown function](http://php.net/manual/en/function.register-shutdown-function.php) to handle uncatchable fatal
@@ -57,7 +60,7 @@ $errorHandler->logUncaught(Error::class); // PHP7 only
 
 ## PSR-7 compatible middleware
 
-The error handler can be used as PSR-7 compatible middleware.
+The error handler can be used as PSR-7 compatible (double-pass) middleware.
 
 The error will catch [Exceptions](http://php.net/manual/en/class.exception.php) and
 [Errors](http://php.net/manual/en/class.error.php).
@@ -88,15 +91,13 @@ Or with **Jasny Router**:
 
 ```php
 use Jasny\Router;
-use Jasny\Router\Routes;
+use Jasny\Router\Routes\Glob as Routes;
 use Jasny\HttpMessage\ServerRequest;
 use Jasny\HttpMessage\Response;
 
+$router = new Router(new Routes(['/**' => ['controller' => '$1', 'id' => '$2']));
+
 $errorHandler = new Jasny\ErrorHandler();
-
-$routes = new Routes\Glob(['/**' => ['controller' => '$1', 'id' => '$2']);
-$router = new Router($routes);
-
 $router->add($errorHandler->asMiddleware());
 
 $response = $dispatcher((new ServerRequest())->withGlobalEnvironment(), new Response());
@@ -110,8 +111,8 @@ should call `converErrorsToExceptions()`. This method will convert an error to a
 
 ## Handling fatal errors
 
-Errors that are not thrown, like syntax errors, are not caught, will cause a fatal error. These errors will be logged
-by the error when specified with the `logUncaught()` method.
+Errors that are not thrown, like syntax errors, are not caught and will cause a fatal error. With the `logUncaught()` 
+method, you can specify that the error handler should also these kind of errors.
 
 With the `onFatalError()` method you take additional action, like output a pretty error message.
 
@@ -120,6 +121,8 @@ ob_start();
 
 $errorHandler = new Jasny\ErrorHandler();
 
+$errorHandler->logUncaught(E_ERROR | E_RECOVERABLE_ERROR | E_USER_ERROR);
+
 $errorHandler->onFatalError(function() {
     http_response_code(500);
     header('Content-Type: text/html');
@@ -127,15 +130,15 @@ $errorHandler->onFatalError(function() {
 }, true);
 ```
 
-Use `true` as second argument clears the output buffer before calling your function.
+Use `true` as second argument of `onFatalError` to the output buffer before calling your function.
 
 ## Combine with other error handlers
 
 Using the error logger might lose backtrace information that other error handlers can pick up. Jasny Error Handler
 will always call the previous error handler, including the PHP internal error handler for non-thrown errors.
 
-When using [Rollbar](https://rollbar.com/) you could use the Rollbar handler for Monolog, however instead you'll get a
-better error report if you use Rollbar's own error handler:
+When using [Rollbar](https://rollbar.com/) you should not use the Rollbar handler for Monolog. By using Rollbar's own error 
+handler, you'll get better error reports:
 
 ```php
 use Jasny\ErrorHandler;

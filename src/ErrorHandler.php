@@ -9,7 +9,7 @@ use Psr\Log\LoggerAwareInterface;
 /**
  * Handle error in following middlewares/app actions
  */
-class ErrorHandler implements LoggerAwareInterface
+class ErrorHandler implements ErrorHandlerInterface, LoggerAwareInterface
 {
     use ErrorHandler\Logging;
     use ErrorHandler\ErrorCodes;
@@ -55,7 +55,6 @@ class ErrorHandler implements LoggerAwareInterface
     {
         return $this->error;
     }
-    
     
     
     /**

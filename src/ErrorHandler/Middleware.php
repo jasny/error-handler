@@ -5,6 +5,7 @@ namespace Jasny\ErrorHandler;
 use Jasny\ErrorHandler;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Message\ResponseInterface;
+use Jasny\HttpMessage\Response as JasnyResponse;
 
 /**
  * Use error handler as middleware
@@ -68,8 +69,12 @@ class Middleware
      */
     protected function errorResponse(ServerRequestInterface $request, ResponseInterface $response)
     {
+        if ($response instanceof JasnyResponse && $response->isStale()) {
+            $response = $response->revive();
+        }
+
         $errorResponse = $response->withProtocolVersion($request->getProtocolVersion())->withStatus(500);
-        $errorResponse->getBody()->write('Unexpected error');
+        $errorResponse->getBody()->write('An unexpected error occured');
 
         return $errorResponse;
     }

@@ -88,7 +88,7 @@ class MiddlewareTest extends \PHPUnit_Framework_TestCase
         
         $exception = $this->createMock(\Exception::class);
 
-        $stream->expects($this->once())->method('write')->with('Unexpected error');
+        $stream->expects($this->once())->method('write')->with('An unexpected error occured');
 
         $request->expects($this->once())->method('getProtocolVersion')->willReturn('1.1');
 

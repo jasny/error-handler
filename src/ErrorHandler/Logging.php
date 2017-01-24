@@ -18,6 +18,23 @@ trait Logging
     
     
     /**
+     * Get the log level for an error code
+     * 
+     * @param int $code  E_* error code
+     * @return string
+     */
+    abstract protected function getLogLevel($code = null);
+    
+    /**
+     * Turn an error code into a string
+     * 
+     * @param int $code
+     * @return string
+     */
+    abstract protected function codeToString($code);
+    
+    
+    /**
      * Set the logger for logging errors
      * 
      * @param LoggerInterface $logger

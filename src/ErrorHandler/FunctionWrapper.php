@@ -22,7 +22,7 @@ trait FunctionWrapper
     /**
      * Wrapper method for `error_get_last`
      * 
-     * @return array
+     * @return array|null
      */
     protected function errorGetLast()
     {

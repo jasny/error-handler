@@ -23,13 +23,14 @@ trait HandleShutdownError
      * Run the fatal error callback
      * 
      * @param \Exception|\Error $error
+     * @return void
      */
     abstract protected function callOnFatalError($error);
 
     /**
      * Wrapper method for `error_get_last`
      * 
-     * @return array
+     * @return array|null
      */
     abstract protected function errorGetLast();
     
@@ -37,6 +38,7 @@ trait HandleShutdownError
      * Wrapper method for `register_shutdown_function`
      * 
      * @param callable $callback
+     * @return void
      */
     abstract protected function registerShutdownFunction($callback);
 
@@ -44,6 +46,7 @@ trait HandleShutdownError
      * Log an error or exception
      * 
      * @param \Exception|\Error $error
+     * @return void
      */
     abstract public function log($error);
 
@@ -87,7 +90,7 @@ trait HandleShutdownError
         $err = $this->errorGetLast();
         $unhandled = E_ERROR | E_PARSE | E_CORE_ERROR | E_COMPILE_ERROR;
         
-        if (!$err || !($err['type'] & $unhandled)) {
+        if (empty($err) || !($err['type'] & $unhandled)) {
             return;
         }
         
@@ -100,4 +103,3 @@ trait HandleShutdownError
         $this->callOnFatalError($error);
     }
 }
-

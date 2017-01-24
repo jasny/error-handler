@@ -41,6 +41,7 @@ trait HandleUncaughtException
      * Log an error or exception
      * 
      * @param \Exception|\Error $error
+     * @return void
      */
     abstract public function log($error);
 
@@ -108,7 +109,7 @@ trait HandleUncaughtException
         $this->setExceptionHandler(null);
         $this->setErrorHandler(null);
         
-        $isInstanceOf = array_map(function($class) use ($exception) {
+        $isInstanceOf = array_map(function ($class) use ($exception) {
             return is_a($exception, $class);
         }, $this->logExceptionClasses);
         

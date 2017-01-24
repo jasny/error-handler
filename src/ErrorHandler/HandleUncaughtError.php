@@ -29,6 +29,7 @@ trait HandleUncaughtError
      * Run the fatal error callback
      * 
      * @param \Exception|\Error $error
+     * @return void
      */
     abstract protected function callOnFatalError($error);
 
@@ -50,6 +51,7 @@ trait HandleUncaughtError
 
     /**
      * Register the shutdown function
+     * @return void
      */
     abstract protected function initShutdownFunction();
 
@@ -57,6 +59,7 @@ trait HandleUncaughtError
      * Log an error or exception
      * 
      * @param \Exception|\Error $error
+     * @return void
      */
     abstract public function log($error);
 

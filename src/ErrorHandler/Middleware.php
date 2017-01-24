@@ -69,7 +69,7 @@ class Middleware
      */
     protected function errorResponse(ServerRequestInterface $request, ResponseInterface $response)
     {
-        if ($response instanceof JasnyResponse && $response->isStale()) {
+        if (class_exists(JasnyResponse::class) && $response instanceof JasnyResponse && $response->isStale()) {
             $response = $response->revive();
         }
 

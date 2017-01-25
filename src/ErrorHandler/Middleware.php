@@ -5,7 +5,7 @@ namespace Jasny\ErrorHandler;
 use Jasny\ErrorHandler;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Message\ResponseInterface;
-use Jasny\HttpMessage\Response as JasnyResponse;
+use Jasny\HttpMessage\GlobalEnvironmentInterface;
 
 /**
  * Use error handler as middleware
@@ -69,7 +69,11 @@ class Middleware
      */
     protected function errorResponse(ServerRequestInterface $request, ResponseInterface $response)
     {
-        if (class_exists(JasnyResponse::class) && $response instanceof JasnyResponse && $response->isStale()) {
+        if (
+            interface_exists(GlobalEnvironmentInterface::class, false) &&
+            $response instanceof GlobalEnvironmentInterface &&
+            $response->isStale()
+        ) {
             $response = $response->revive();
         }
 

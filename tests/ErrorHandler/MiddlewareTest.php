@@ -4,21 +4,22 @@ namespace Jasny\ErrorHandler;
 
 use Jasny\ErrorHandler;
 use Jasny\ErrorHandler\Middleware;
-
+use Jasny\HttpMessage\Response as Response;
 use Psr\Log\LoggerInterface;
 use Psr\Log\LogLevel;
-
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\StreamInterface;
-
 use PHPUnit_Framework_MockObject_MockObject as MockObject;
+use Jasny\TestHelper;
 
 /**
  * @covers Jasny\ErrorHandler\Middleware
  */
 class MiddlewareTest extends \PHPUnit_Framework_TestCase
 {
+    use TestHelper;
+    
     /**
      * @var ErrorHandler|MockObject
      */
@@ -126,7 +127,7 @@ class MiddlewareTest extends \PHPUnit_Framework_TestCase
         $errorResponse = $this->createMock(ResponseInterface::class);
         $stream = $this->createMock(StreamInterface::class);
         
-        $stream->expects($this->once())->method('write')->with('Unexpected error');
+        $stream->expects($this->once())->method('write')->with('An unexpected error occured');
 
         $request->expects($this->once())->method('getProtocolVersion')->willReturn('1.1');
 
@@ -153,15 +154,43 @@ class MiddlewareTest extends \PHPUnit_Framework_TestCase
         $this->assertEquals("Call to undefined function this_function_does_not_exist()", $error->getMessage());
     }
     
+    public function testInvokeRevive()
+    {
+        $request = $this->createMock(ServerRequestInterface::class);
+        $response = $this->createMock(Response::class);
+        $revivedResponse = $this->createMock(Response::class);
+        $stream = $this->createMock(StreamInterface::class);
+        
+        $exception = $this->createMock(\Exception::class);
+
+        $response->method('isStale')->willReturn(true);
+        $response->expects($this->once())->method('revive')->willReturn($revivedResponse);
+        $response->expects($this->never())->method('withProtocolVersion');
+        
+        $revivedResponse->expects($this->once())->method('withProtocolVersion')->willReturnSelf();
+        $revivedResponse->expects($this->once())->method('withStatus')->willReturnSelf();
+        $revivedResponse->expects($this->once())->method('getBody')->willReturn($stream);
+        
+        $next = $this->createCallbackMock($this->once(), function ($method) use ($request, $response, $exception) {
+            $method->with($request, $response)->willThrowException($exception);
+        });
+        
+        $middleware = $this->middleware;
+        
+        $result = $middleware($request, $response, $next);
+        
+        $this->assertSame($revivedResponse, $result);
+    }
+    
     public function testInvokeLog()
     {
         $request = $this->createMock(ServerRequestInterface::class);
         $response = $this->createMock(ResponseInterface::class);
         $stream = $this->createMock(StreamInterface::class);
         
-        $response->method('withProtocolVersion')->willReturnSelf();
-        $response->method('withStatus')->willReturnSelf();
-        $response->method('getBody')->willReturn($stream);
+        $response->method('withProtocolVersion')->id('withProtocolVersion')->willReturnSelf();
+        $response->method('withStatus')->id('withStatus')->after('withProtocolVersion')->willReturnSelf();
+        $response->method('getBody')->after('withStatus')->willReturn($stream);
         
         $exception = $this->createMock(\Exception::class);
         

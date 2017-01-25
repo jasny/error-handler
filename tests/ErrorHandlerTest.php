@@ -5,9 +5,9 @@ namespace Jasny;
 use Jasny\ErrorHandler;
 use Psr\Log\LoggerInterface;
 use Psr\Log\LogLevel;
-
 use PHPUnit_Framework_MockObject_MockObject as MockObject;
 use PHPUnit_Framework_MockObject_Matcher_InvokedCount as InvokedCount;
+use Jasny\TestHelper;
 
 /**
  * @covers Jasny\ErrorHandler
@@ -20,6 +20,8 @@ use PHPUnit_Framework_MockObject_Matcher_InvokedCount as InvokedCount;
  */
 class ErrorHandlerTest extends \PHPUnit_Framework_TestCase
 {
+    use TestHelper;
+    
     /**
      * @var ErrorHandler|MockObject
      */
@@ -393,6 +395,22 @@ class ErrorHandlerTest extends \PHPUnit_Framework_TestCase
         }
     }
     
+    public function testHandleErrorChaining()
+    {
+        $handler = $this->createCallbackMock($this->once(), [E_USER_WARNING, 'no good', 'foo.php', 42, []], false);
+
+        $errorHandler = $this->errorHandler;
+        $errorHandler->expects($this->once())->method('errorReporting')->willReturn(E_ALL | E_STRICT);
+        $errorHandler->expects($this->once())->method('setErrorHandler')->willReturn($handler);
+        
+        $errorHandler->logUncaught(E_USER_WARNING);
+        
+        $ret = $errorHandler->handleError(E_USER_WARNING, 'no good', 'foo.php', 42, []);
+        
+        $this->assertSame($ret, false);
+    }
+    
+    
     public function handleExceptionProvider()
     {
         return [
@@ -443,13 +461,9 @@ class ErrorHandlerTest extends \PHPUnit_Framework_TestCase
     public function testHandleExceptionChaining()
     {
         $exception = new \Exception('no good');
-        
-        $handler = $this->getMockBuilder(\stdClass::class)->setMethods(['__invoke'])->getMock();
-        $handler->expects($this->once())->method('__invoke')
-            ->with($exception);
+        $handler = $this->createCallbackMock($this->once(), [$exception]);
 
         $errorHandler = $this->errorHandler;
-        
         $errorHandler->expects($this->exactly(2))->method('setExceptionHandler')
             ->withConsecutive([[$errorHandler, 'handleException']], [null])
             ->willReturnOnConsecutiveCalls($handler, [$errorHandler, 'handleException']);
